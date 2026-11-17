@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+  <h2>{{ t.new_ticket }}</h2>
+  <form method="post" action="/tickets">
+    <input type="hidden" name="lang" value="{{ lang }}">
+    <label for="title">{{ t.title }}</label>
+    <input id="title" name="title" required minlength="3" maxlength="200">
+    <label for="requester">{{ t.requester }}</label>
+    <input id="requester" name="requester" required minlength="2" maxlength="100">
+    <label for="priority">{{ t.priority }}</label>
+    <select id="priority" name="priority">
+      {% for p in priorities %}<option value="{{ p.value }}" {{ 'selected' if p.value == 'P3' else '' }}>{{ p.value }}</option>{% endfor %}
+    </select>
+    <label for="description">{{ t.description }}</label>
+    <textarea id="description" name="description" rows="3" maxlength="5000"></textarea>
+    <button type="submit">{{ t.submit }}</button>
+  </form>
+</section>
+
+<section class="card">
+  <h2>{{ t.tickets }}</h2>
+  {% if tickets %}
+  <div class="scroll">
+  <table>
+    <thead><tr><th>#</th><th>{{ t.title }}</th><th>{{ t.priority }}</th><th>{{ t.status }}</th><th>{{ t.resolve_due }}</th></tr></thead>
+    <tbody>
+    {% for tk in tickets %}
+      <tr>
+        <td>{{ tk.id }}</td>
+        <td><a href="/tickets/{{ tk.id }}?lang={{ lang }}">{{ tk.title }}</a></td>
+        <td><span class="badge">{{ tk.priority }}</span></td>
+        <td>{{ t[tk.status] }}</td>
+        <td>
+          {{ tk.resolve_due.strftime('%Y-%m-%d %H:%M') if tk.resolve_due else '—' }}
+          {% if tk.response_breached or tk.resolve_breached %}<span class="breached">· {{ t.breached }}</span>{% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <p>{{ t.no_tickets }}</p>
+  {% endif %}
+</section>
+{% endblock %}

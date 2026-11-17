@@ -1,0 +1,19 @@
+[project]
+name = "helpdesk"
+version = "0.1.0"
+description = "Helpdesk: ticket service with P1-P4 priorities and SLA deadlines"
+requires-python = ">=3.12"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI dependency markers are meant to be used as argument defaults
+extend-immutable-calls = ["fastapi.Form", "fastapi.Query", "fastapi.Depends"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

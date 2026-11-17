@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block content %}
+<p><a href="/?lang={{ lang }}">← {{ t.back }}</a></p>
+<section class="card">
+  <h2>#{{ ticket.id }} · {{ ticket.title }}</h2>
+  <p>{{ ticket.description }}</p>
+  <table>
+    <tr><th>{{ t.requester }}</th><td>{{ ticket.requester }}</td></tr>
+    <tr><th>{{ t.priority }}</th><td><span class="badge">{{ ticket.priority }}</span></td></tr>
+    <tr><th>{{ t.status }}</th><td>{{ t[ticket.status] }}</td></tr>
+    <tr><th>{{ t.created }}</th><td>{{ ticket.created_at.strftime('%Y-%m-%d %H:%M') }}</td></tr>
+    <tr><th>{{ t.response_due }}</th><td>
+      {{ ticket.response_due.strftime('%Y-%m-%d %H:%M') if ticket.response_due else '—' }}
+      {% if ticket.response_breached %}<span class="breached">· {{ t.breached }}</span>{% endif %}
+    </td></tr>
+    <tr><th>{{ t.resolve_due }}</th><td>
+      {{ ticket.resolve_due.strftime('%Y-%m-%d %H:%M') if ticket.resolve_due else '—' }}
+      {% if ticket.resolve_breached %}<span class="breached">· {{ t.breached }}</span>{% endif %}
+    </td></tr>
+  </table>
+</section>
+
+{% if allowed %}
+<section class="card">
+  <form method="post" action="/tickets/{{ ticket.id }}/status">
+    <input type="hidden" name="lang" value="{{ lang }}">
+    <label for="status">{{ t.change_status }}</label>
+    <select id="status" name="status">
+      {% for s in allowed %}<option value="{{ s }}">{{ t[s] }}</option>{% endfor %}
+    </select>
+    <button type="submit">{{ t.submit }}</button>
+  </form>
+</section>
+{% endif %}
+{% endblock %}
