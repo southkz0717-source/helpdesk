@@ -25,6 +25,10 @@ TEXTS: dict[str, dict[str, str]] = {
         "in_progress": "Жұмыста",
         "resolved": "Шешілді",
         "closed": "Жабылды",
+        "search": "Іздеу",
+        "search_placeholder": "Тақырып, өтініш беруші немесе сипаттама",
+        "reset": "Тазалау",
+        "found": "Табылды",
     },
     "ru": {
         "app_title": "Служба поддержки",
@@ -47,6 +51,10 @@ TEXTS: dict[str, dict[str, str]] = {
         "in_progress": "В работе",
         "resolved": "Решена",
         "closed": "Закрыта",
+        "search": "Поиск",
+        "search_placeholder": "Тема, заявитель или описание",
+        "reset": "Сбросить",
+        "found": "Найдено",
     },
     "en": {
         "app_title": "Helpdesk",
@@ -69,6 +77,10 @@ TEXTS: dict[str, dict[str, str]] = {
         "in_progress": "In progress",
         "resolved": "Resolved",
         "closed": "Closed",
+        "search": "Search",
+        "search_placeholder": "Title, requester or description",
+        "reset": "Reset",
+        "found": "Found",
     },
 }
 

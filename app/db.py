@@ -33,6 +33,8 @@ def db_path() -> str:
 def connect() -> Iterator[sqlite3.Connection]:
     conn = sqlite3.connect(db_path())
     conn.row_factory = sqlite3.Row
+    # SQLite's LOWER() and LIKE ignore case only for ASCII; this handles Cyrillic and Kazakh
+    conn.create_function("casefold", 1, lambda s: s.casefold() if s else "", deterministic=True)
     try:
         yield conn
         conn.commit()
@@ -92,9 +94,18 @@ def get_ticket(ticket_id: int) -> dict | None:
     return row_to_dict(row) if row else None
 
 
-def list_tickets(status: Status | None = None, priority: Priority | None = None) -> list[dict]:
+def list_tickets(
+    status: Status | None = None, priority: Priority | None = None, q: str | None = None
+) -> list[dict]:
     query = "SELECT * FROM tickets WHERE 1=1"
     params: list[str] = []
+    if q and q.strip():
+        needle = q.strip().casefold()
+        query += (
+            " AND (instr(casefold(title), ?) > 0 OR instr(casefold(requester), ?) > 0"
+            " OR instr(casefold(description), ?) > 0)"
+        )
+        params += [needle, needle, needle]
     if status:
         query += " AND status = ?"
         params.append(status.value)

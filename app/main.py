@@ -2,8 +2,9 @@
 
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Annotated
 
-from fastapi import FastAPI, Form, HTTPException, Request
+from fastapi import FastAPI, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field, ValidationError
@@ -13,7 +14,7 @@ from app.i18n import LANGUAGES, get_texts
 from app.sla import Priority, Status, can_transition, is_breached
 from app.timefmt import localtime, tz_label
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 TEMPLATES = Jinja2Templates(directory=Path(__file__).parent / "templates")
 TEMPLATES.env.filters["localtime"] = localtime
@@ -86,9 +87,16 @@ def api_create_ticket(payload: TicketIn) -> dict:
     return with_sla_flags(ticket)
 
 
+SearchQuery = Annotated[
+    str | None, Query(max_length=100, description="Search in title, requester, description")
+]
+
+
 @app.get("/api/tickets")
-def api_list_tickets(status: Status | None = None, priority: Priority | None = None) -> list[dict]:
-    return [with_sla_flags(t) for t in db.list_tickets(status, priority)]
+def api_list_tickets(
+    status: Status | None = None, priority: Priority | None = None, q: SearchQuery = None
+) -> list[dict]:
+    return [with_sla_flags(t) for t in db.list_tickets(status, priority, q)]
 
 
 @app.get("/api/tickets/{ticket_id}")
@@ -127,9 +135,9 @@ def render(request: Request, name: str, lang: str | None, **context) -> HTMLResp
 
 
 @app.get("/", response_class=HTMLResponse)
-def index(request: Request, lang: str | None = None) -> HTMLResponse:
-    tickets = [with_sla_flags(t) for t in db.list_tickets()]
-    return render(request, "index.html", lang, tickets=tickets)
+def index(request: Request, lang: str | None = None, q: SearchQuery = None) -> HTMLResponse:
+    tickets = [with_sla_flags(t) for t in db.list_tickets(q=q)]
+    return render(request, "index.html", lang, tickets=tickets, q=(q or "").strip())
 
 
 @app.post("/tickets")
