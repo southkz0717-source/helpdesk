@@ -1,0 +1,15 @@
+# Demo stand. The named volume keeps tickets across upgrades and rollbacks.
+#   docker compose up -d                 start / upgrade to the latest release
+#   HELPDESK_VERSION=0.3.0 docker compose up -d   pin or roll back to a version
+services:
+  helpdesk:
+    image: ghcr.io/southkz0717-source/helpdesk:${HELPDESK_VERSION:-latest}
+    container_name: helpdesk
+    ports:
+      - "8000:8000"
+    volumes:
+      - helpdesk-data:/data
+    restart: unless-stopped
+
+volumes:
+  helpdesk-data:

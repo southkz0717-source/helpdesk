@@ -12,9 +12,10 @@ from pydantic import BaseModel, Field, ValidationError
 from app import db
 from app.i18n import LANGUAGES, get_texts
 from app.sla import Priority, Status, can_transition, is_breached
+from app.storage import storage_status, warn_if_ephemeral
 from app.timefmt import localtime, tz_label
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 
 TEMPLATES = Jinja2Templates(directory=Path(__file__).parent / "templates")
 TEMPLATES.env.filters["localtime"] = localtime
@@ -24,6 +25,7 @@ TEMPLATES.env.globals["tz_label"] = tz_label
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     db.init_db()
+    warn_if_ephemeral()
     yield
 
 
@@ -76,7 +78,8 @@ def change_status(ticket_id: int, new_status: Status) -> dict:
 
 @app.get("/health")
 def health() -> dict:
-    return {"status": "ok", "version": __version__}
+    # persistent_storage: false means tickets will be lost on redeploy (incident, v0.3.0)
+    return {"status": "ok", "version": __version__, "persistent_storage": storage_status()}
 
 
 @app.post("/api/tickets", status_code=201)

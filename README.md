@@ -47,7 +47,18 @@ ruff check .
 
 ```bash
 docker build -t helpdesk .
-docker run -p 8000:8000 helpdesk
+docker run -d --name helpdesk -p 8000:8000 -v helpdesk-data:/data helpdesk
+```
+
+> **Обязательно `-v helpdesk-data:/data`.** Без тома все заявки пропадают при пересоздании
+> контейнера, то есть при каждом обновлении (инцидент на v0.3.0). Проверка: `GET /health`
+> возвращает `"persistent_storage": true`.
+
+Стенд из опубликованного образа (том уже настроен):
+
+```bash
+docker compose up -d                             # последняя версия
+HELPDESK_VERSION=0.3.0 docker compose up -d      # конкретная версия или откат
 ```
 
 ## CI/CD и DORA (ЗС 10)
