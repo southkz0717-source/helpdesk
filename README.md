@@ -70,6 +70,7 @@ HELPDESK_VERSION=0.3.0 docker compose up -d      # конкретная верс
 | [`dora.yml`](.github/workflows/dora.yml) | каждый понедельник или вручную | считает 4 метрики DORA по GitHub API, выкладывает дашборд как артефакт |
 
 - Определения метрик и уровни: [docs/dora.md](docs/dora.md)
+- Текущие значения, уровни и 2 улучшения: [docs/dora-analysis.md](docs/dora-analysis.md), дашборд: [docs/dora/dashboard.png](docs/dora/dashboard.png)
 - Защита ветки `main`: [docs/branch-protection.md](docs/branch-protection.md)
 - План релизов, окна, чек-лист и откат: [docs/release-plan.md](docs/release-plan.md)
 - Шаблоны issue: **Release** (чек-лист релиза) и **Incident** (ставит метку `incident` для DORA)
