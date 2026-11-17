@@ -24,8 +24,8 @@ jobs:
     name: Lint (ruff)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
@@ -38,8 +38,8 @@ jobs:
     name: Tests (pytest)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
@@ -57,7 +57,7 @@ jobs:
     name: Security (Trivy, gitleaks)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0 # gitleaks scans the whole history
       - name: Trivy — vulnerable dependencies
@@ -65,8 +65,9 @@ jobs:
           docker run --rm -v "$PWD:/src" ${{ env.TRIVY_IMAGE }}
           fs --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 /src
       - name: gitleaks — leaked secrets
+        # run as the runner user so git inside the container trusts the checkout
         run: >
-          docker run --rm -v "$PWD:/repo" ${{ env.GITLEAKS_IMAGE }}
+          docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/repo" ${{ env.GITLEAKS_IMAGE }}
           git /repo --redact --verbose
 
   build:
@@ -77,7 +78,7 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: docker/setup-buildx-action@v3
       - id: meta
         uses: docker/metadata-action@v5
