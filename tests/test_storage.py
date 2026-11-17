@@ -32,5 +32,5 @@ def test_database_without_volume_is_not_persistent():
 
 def test_health_reports_storage(client):
     body = client.get("/health").json()
-    assert body["version"] == "0.3.1"
+    assert body["version"] == "0.4.0"
     assert "persistent_storage" in body  # None on Windows/macOS, bool in Linux containers

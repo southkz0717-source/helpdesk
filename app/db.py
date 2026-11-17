@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS tickets (
     first_response_at TEXT,
     resolved_at       TEXT
 );
+CREATE INDEX IF NOT EXISTS idx_tickets_priority_created ON tickets (priority, created_at);
 """
 
 
@@ -31,8 +32,11 @@ def db_path() -> str:
 
 @contextmanager
 def connect() -> Iterator[sqlite3.Connection]:
-    conn = sqlite3.connect(db_path())
+    # timeout: wait up to 10 s for a lock instead of failing at once (load test, v0.3.1)
+    conn = sqlite3.connect(db_path(), timeout=10)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA busy_timeout = 10000")
+    conn.execute("PRAGMA synchronous = NORMAL")  # safe with WAL, much faster commits
     # SQLite's LOWER() and LIKE ignore case only for ASCII; this handles Cyrillic and Kazakh
     conn.create_function("casefold", 1, lambda s: s.casefold() if s else "", deterministic=True)
     try:
@@ -44,6 +48,9 @@ def connect() -> Iterator[sqlite3.Connection]:
 
 def init_db() -> None:
     with connect() as conn:
+        # WAL: readers do not block the writer and vice versa. Without it 200 concurrent
+        # users got "database is locked" (HTTP 500) in the load test on v0.3.1.
+        conn.execute("PRAGMA journal_mode = WAL")
         conn.executescript(SCHEMA)
 
 
@@ -94,28 +101,54 @@ def get_ticket(ticket_id: int) -> dict | None:
     return row_to_dict(row) if row else None
 
 
-def list_tickets(
-    status: Status | None = None, priority: Priority | None = None, q: str | None = None
-) -> list[dict]:
-    query = "SELECT * FROM tickets WHERE 1=1"
+def _filters(
+    status: Status | None, priority: Priority | None, q: str | None
+) -> tuple[str, list[str]]:
+    where = " WHERE 1=1"
     params: list[str] = []
     if q and q.strip():
         needle = q.strip().casefold()
-        query += (
+        where += (
             " AND (instr(casefold(title), ?) > 0 OR instr(casefold(requester), ?) > 0"
             " OR instr(casefold(description), ?) > 0)"
         )
         params += [needle, needle, needle]
     if status:
-        query += " AND status = ?"
+        where += " AND status = ?"
         params.append(status.value)
     if priority:
-        query += " AND priority = ?"
+        where += " AND priority = ?"
         params.append(priority.value)
-    query += " ORDER BY priority, created_at"
+    return where, params
+
+
+def list_tickets(
+    status: Status | None = None,
+    priority: Priority | None = None,
+    q: str | None = None,
+    limit: int | None = None,
+) -> list[dict]:
+    """Queue order: most urgent priority first, oldest first within a priority.
+
+    `limit` keeps pages fast as the table grows: rendering every ticket made
+    GET / take seconds after ~1300 tickets in the load test on v0.3.1.
+    """
+    where, params = _filters(status, priority, q)
+    query = "SELECT * FROM tickets" + where + " ORDER BY priority, created_at"
+    if limit is not None:
+        query += " LIMIT ?"
+        params.append(str(limit))
     with connect() as conn:
         rows = conn.execute(query, params).fetchall()
     return [row_to_dict(r) for r in rows]
+
+
+def count_tickets(
+    status: Status | None = None, priority: Priority | None = None, q: str | None = None
+) -> int:
+    where, params = _filters(status, priority, q)
+    with connect() as conn:
+        return conn.execute("SELECT COUNT(*) FROM tickets" + where, params).fetchone()[0]
 
 
 def set_status(ticket_id: int, new_status: Status) -> dict:

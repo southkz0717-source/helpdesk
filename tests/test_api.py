@@ -102,7 +102,7 @@ def test_ticket_page_shows_local_time(client, monkeypatch):
 
 
 def test_health_reports_version(client):
-    assert client.get("/health").json()["version"] == "0.3.1"
+    assert client.get("/health").json()["version"] == "0.4.0"
 
 
 def test_search_is_case_insensitive_for_cyrillic_and_kazakh(client):
@@ -149,3 +149,36 @@ def test_ui_search(client):
     assert "Принтер не печатает" in page
     assert "VPN disconnects" not in page
     assert "Найдено: 1" in page
+
+
+def test_list_page_is_limited_and_shows_total(client, monkeypatch):
+    monkeypatch.setattr("app.main.PAGE_SIZE", 3)
+    for i in range(5):
+        make_ticket(client, title=f"Ticket number {i}")
+    page = client.get("/", params={"lang": "en"}).text
+    assert page.count("Ticket number") == 3
+    assert "Shown: 3 / 5" in page
+
+
+def test_api_limit(client):
+    for i in range(4):
+        make_ticket(client, title=f"Limit test {i}")
+    assert len(client.get("/api/tickets", params={"limit": 2}).json()) == 2
+    assert client.get("/api/tickets", params={"limit": 0}).status_code == 422
+    assert client.get("/api/tickets", params={"limit": 501}).status_code == 422
+
+
+def test_search_count_is_total_not_page(client, monkeypatch):
+    monkeypatch.setattr("app.main.PAGE_SIZE", 2)
+    for i in range(3):
+        make_ticket(client, title=f"Принтер {i}")
+    page = client.get("/", params={"q": "принтер", "lang": "ru"}).text
+    assert "Найдено: 3" in page
+
+
+def test_database_uses_wal(client, tmp_path):
+    import sqlite3
+
+    conn = sqlite3.connect(tmp_path / "test.db")
+    assert conn.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+    conn.close()

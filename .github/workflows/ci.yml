@@ -53,6 +53,26 @@ jobs:
           name: test-results
           path: test-results.xml
 
+  e2e:
+    name: E2E (Playwright)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements-e2e.txt
+      - run: pip install -r requirements-e2e.txt
+      - run: python -m playwright install --with-deps chromium
+      - run: pytest e2e --tracing=retain-on-failure --output=e2e-results
+      - name: Upload traces of failed tests
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-traces
+          path: e2e-results/
+
   security:
     name: Security (Trivy, gitleaks)
     runs-on: ubuntu-latest
@@ -72,7 +92,7 @@ jobs:
 
   build:
     name: Build and publish image
-    needs: [lint, test, security]
+    needs: [lint, test, e2e, security]
     runs-on: ubuntu-latest
     permissions:
       contents: read
