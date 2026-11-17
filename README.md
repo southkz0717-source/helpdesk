@@ -60,6 +60,8 @@ docker run -p 8000:8000 helpdesk
 
 - Определения метрик и уровни: [docs/dora.md](docs/dora.md)
 - Защита ветки `main`: [docs/branch-protection.md](docs/branch-protection.md)
+- План релизов, окна, чек-лист и откат: [docs/release-plan.md](docs/release-plan.md)
+- Шаблоны issue: **Release** (чек-лист релиза) и **Incident** (ставит метку `incident` для DORA)
 
 Выпуск релиза:
 
