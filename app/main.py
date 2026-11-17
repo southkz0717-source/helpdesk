@@ -11,10 +11,13 @@ from pydantic import BaseModel, Field, ValidationError
 from app import db
 from app.i18n import LANGUAGES, get_texts
 from app.sla import Priority, Status, can_transition, is_breached
+from app.timefmt import localtime, tz_label
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 TEMPLATES = Jinja2Templates(directory=Path(__file__).parent / "templates")
+TEMPLATES.env.filters["localtime"] = localtime
+TEMPLATES.env.globals["tz_label"] = tz_label
 
 
 @asynccontextmanager
