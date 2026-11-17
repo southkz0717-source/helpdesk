@@ -72,6 +72,7 @@ HELPDESK_VERSION=0.3.0 docker compose up -d      # конкретная верс
 | [`dora.yml`](.github/workflows/dora.yml) | каждый понедельник или вручную | считает 4 метрики DORA по GitHub API, выкладывает дашборд как артефакт |
 
 - Определения метрик и уровни: [docs/dora.md](docs/dora.md)
+- UAT (11-ЗЖ): сценарии [docs/uat.md](docs/uat.md), протокол [docs/uat-protocol.md](docs/uat-protocol.md), данные для стенда: `python -m scripts.seed --url http://localhost:8000 --count 200`
 - Стратегия тестирования (11-ЗЖ): [docs/test-strategy.md](docs/test-strategy.md), E2E: `pytest e2e`, нагрузка: [loadtest/locustfile.py](loadtest/locustfile.py)
 - Текущие значения, уровни и 2 улучшения: [docs/dora-analysis.md](docs/dora-analysis.md), дашборд: [docs/dora/dashboard.png](docs/dora/dashboard.png)
 - Защита ветки `main`: [docs/branch-protection.md](docs/branch-protection.md)
