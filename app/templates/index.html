@@ -20,6 +20,14 @@
 
 <section class="card">
   <h2>{{ t.tickets }}</h2>
+  <form method="get" action="/" class="search" role="search">
+    <input type="hidden" name="lang" value="{{ lang }}">
+    <label for="q" class="sr-only">{{ t.search }}</label>
+    <input id="q" name="q" type="search" value="{{ q }}" maxlength="100" placeholder="{{ t.search_placeholder }}">
+    <button type="submit">{{ t.search }}</button>
+    {% if q %}<a href="/?lang={{ lang }}">{{ t.reset }}</a>{% endif %}
+  </form>
+  {% if q %}<p class="muted">{{ t.found }}: {{ tickets|length }}</p>{% endif %}
   {% if tickets %}
   <div class="scroll">
   <table>

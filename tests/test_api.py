@@ -112,4 +112,50 @@ def test_ticket_page_shows_local_time(client, monkeypatch):
 
 
 def test_health_reports_version(client):
-    assert client.get("/health").json()["version"] == "0.2.0"
+    assert client.get("/health").json()["version"] == "0.3.0"
+
+
+def test_search_is_case_insensitive_for_cyrillic_and_kazakh(client):
+    make_ticket(client, title="Принтер не печатает")
+    make_ticket(client, title="Қолдау қызметіне кіру мүмкін емес")
+    make_ticket(client, title="VPN disconnects")
+
+    def titles(q):
+        return [t["title"] for t in client.get("/api/tickets", params={"q": q}).json()]
+
+    assert titles("ПРИНТЕР") == ["Принтер не печатает"]
+    assert titles("қызмет") == ["Қолдау қызметіне кіру мүмкін емес"]
+    assert titles("ҚОЛДАУ") == ["Қолдау қызметіне кіру мүмкін емес"]
+    assert titles("vpn") == ["VPN disconnects"]
+    assert titles("  ") == [t["title"] for t in client.get("/api/tickets").json()]
+
+
+def test_search_by_requester_and_description(client):
+    client.post(
+        "/api/tickets",
+        json={"title": "Нет доступа", "requester": "Ерлан", "priority": "P3",
+              "description": "Не открывается корпоративная почта"},
+    )  # fmt: skip
+    make_ticket(client, title="Другое")
+    assert len(client.get("/api/tickets", params={"q": "ерлан"}).json()) == 1
+    assert len(client.get("/api/tickets", params={"q": "ПОЧТА"}).json()) == 1
+
+
+def test_search_combines_with_filters(client):
+    make_ticket(client, priority="P1", title="Сервер упал")
+    make_ticket(client, priority="P3", title="Сервер медленный")
+    resp = client.get("/api/tickets", params={"q": "сервер", "priority": "P1"})
+    assert [t["title"] for t in resp.json()] == ["Сервер упал"]
+
+
+def test_search_query_too_long(client):
+    assert client.get("/api/tickets", params={"q": "x" * 101}).status_code == 422
+
+
+def test_ui_search(client):
+    make_ticket(client, title="Принтер не печатает")
+    make_ticket(client, title="VPN disconnects")
+    page = client.get("/", params={"q": "принтер", "lang": "ru"}).text
+    assert "Принтер не печатает" in page
+    assert "VPN disconnects" not in page
+    assert "Найдено: 1" in page
