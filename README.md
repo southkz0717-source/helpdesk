@@ -50,6 +50,24 @@ docker build -t helpdesk .
 docker run -p 8000:8000 helpdesk
 ```
 
+## CI/CD и DORA (ЗС 10)
+
+| Workflow | Когда запускается | Что делает |
+|---|---|---|
+| [`ci.yml`](.github/workflows/ci.yml) | PR и push в `main` | ruff → pytest → Trivy (зависимости) и gitleaks → сборка Docker-образа, smoke-тест `/health`, Trivy (образ) → артефакт; на `main` публикует образ в GHCR |
+| [`release.yml`](.github/workflows/release.yml) | тег `vX.Y.Z` | тесты → образ `:X.Y.Z` и `:latest` в GHCR → GitHub Release (это и есть «деплой» для DORA) |
+| [`dora.yml`](.github/workflows/dora.yml) | каждый понедельник или вручную | считает 4 метрики DORA по GitHub API, выкладывает дашборд как артефакт |
+
+- Определения метрик и уровни: [docs/dora.md](docs/dora.md)
+- Защита ветки `main`: [docs/branch-protection.md](docs/branch-protection.md)
+
+Выпуск релиза:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
 ## API
 
 | Метод | Путь | Описание |
