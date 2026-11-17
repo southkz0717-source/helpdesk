@@ -1,0 +1,33 @@
+# Rebuilds the DORA dashboard from the repository history every Monday (or on demand).
+name: DORA dashboard
+
+on:
+  schedule:
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: read
+
+jobs:
+  dora:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements-dora.txt
+      - run: pip install -r requirements-dora.txt
+      - name: Collect metrics via GitHub API
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python scripts/dora.py --repo "${{ github.repository }}" --out dora-out
+          cat dora-out/report.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dora-dashboard
+          path: dora-out/

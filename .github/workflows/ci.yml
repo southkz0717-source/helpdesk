@@ -1,0 +1,126 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.13"
+  TRIVY_IMAGE: aquasec/trivy:0.58.1
+  GITLEAKS_IMAGE: zricethezav/gitleaks:v8.21.2
+
+jobs:
+  lint:
+    name: Lint (ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - run: pip install -r requirements-dev.txt
+      - run: ruff check --output-format=github .
+      - run: ruff format --check .
+
+  test:
+    name: Tests (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - run: pip install -r requirements-dev.txt
+      - run: pytest --junitxml=test-results.xml
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: test-results.xml
+
+  security:
+    name: Security (Trivy, gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # gitleaks scans the whole history
+      - name: Trivy — vulnerable dependencies
+        run: >
+          docker run --rm -v "$PWD:/src" ${{ env.TRIVY_IMAGE }}
+          fs --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 /src
+      - name: gitleaks — leaked secrets
+        run: >
+          docker run --rm -v "$PWD:/repo" ${{ env.GITLEAKS_IMAGE }}
+          git /repo --redact --verbose
+
+  build:
+    name: Build and publish image
+    needs: [lint, test, security]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=sha,prefix=
+            type=ref,event=branch
+            type=ref,event=pr
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+      - name: Smoke test — container answers /health
+        run: |
+          IMAGE=$(echo "${{ steps.meta.outputs.tags }}" | head -n1)
+          docker run -d --name smoke -p 8000:8000 "$IMAGE"
+          for i in $(seq 1 20); do
+            curl -fs http://localhost:8000/health && exit 0
+            sleep 1
+          done
+          docker logs smoke
+          exit 1
+      - name: Trivy — scan the built image (fails on CRITICAL, reports HIGH)
+        run: |
+          IMAGE=$(echo "${{ steps.meta.outputs.tags }}" | head -n1)
+          TRIVY="docker run --rm -v /var/run/docker.sock:/var/run/docker.sock ${{ env.TRIVY_IMAGE }}"
+          $TRIVY image --severity HIGH --ignore-unfixed --exit-code 0 "$IMAGE"
+          $TRIVY image --severity CRITICAL --ignore-unfixed --exit-code 1 "$IMAGE"
+      - name: Save image as artifact
+        run: |
+          IMAGE=$(echo "${{ steps.meta.outputs.tags }}" | head -n1)
+          docker save "$IMAGE" | gzip > helpdesk-image.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: helpdesk-image
+          path: helpdesk-image.tar.gz
+          retention-days: 7
+      - name: Publish to GitHub Container Registry
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          echo "${{ steps.meta.outputs.tags }}" | xargs -n1 docker push
