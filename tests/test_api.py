@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -97,3 +99,17 @@ def test_ui_create_ticket_form(client):
 def test_ui_form_validation(client):
     resp = client.post("/tickets", data={"title": "x", "requester": "Ерлан", "priority": "P2"})
     assert resp.status_code == 422
+
+
+def test_ticket_page_shows_local_time(client, monkeypatch):
+    monkeypatch.delenv("HELPDESK_TZ", raising=False)
+    tid = make_ticket(client)["id"]
+    ticket = client.get(f"/api/tickets/{tid}").json()
+    created_utc = datetime.fromisoformat(ticket["created_at"])
+    page = client.get(f"/tickets/{tid}").text
+    assert (created_utc + timedelta(hours=5)).strftime("%Y-%m-%d %H:%M") in page
+    assert "UTC+5" in page
+
+
+def test_health_reports_version(client):
+    assert client.get("/health").json()["version"] == "0.2.0"

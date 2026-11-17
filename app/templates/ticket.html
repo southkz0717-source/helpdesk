@@ -8,16 +8,17 @@
     <tr><th>{{ t.requester }}</th><td>{{ ticket.requester }}</td></tr>
     <tr><th>{{ t.priority }}</th><td><span class="badge">{{ ticket.priority }}</span></td></tr>
     <tr><th>{{ t.status }}</th><td>{{ t[ticket.status] }}</td></tr>
-    <tr><th>{{ t.created }}</th><td>{{ ticket.created_at.strftime('%Y-%m-%d %H:%M') }}</td></tr>
+    <tr><th>{{ t.created }}</th><td>{{ ticket.created_at | localtime }}</td></tr>
     <tr><th>{{ t.response_due }}</th><td>
-      {{ ticket.response_due.strftime('%Y-%m-%d %H:%M') if ticket.response_due else '—' }}
+      {{ ticket.response_due | localtime }}
       {% if ticket.response_breached %}<span class="breached">· {{ t.breached }}</span>{% endif %}
     </td></tr>
     <tr><th>{{ t.resolve_due }}</th><td>
-      {{ ticket.resolve_due.strftime('%Y-%m-%d %H:%M') if ticket.resolve_due else '—' }}
+      {{ ticket.resolve_due | localtime }}
       {% if ticket.resolve_breached %}<span class="breached">· {{ t.breached }}</span>{% endif %}
     </td></tr>
   </table>
+  <p style="color:var(--muted);font-size:13px">{{ tz_label() }}</p>
 </section>
 
 {% if allowed %}
