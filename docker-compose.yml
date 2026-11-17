@@ -7,7 +7,7 @@ services:
     image: ghcr.io/southkz0717-source/helpdesk:${HELPDESK_VERSION:-latest}
     container_name: helpdesk
     ports:
-      - "8000:8000"
+      - "${HELPDESK_PORT:-8000}:8000"   # port 8000 busy? set HELPDESK_PORT=8090
     volumes:
       - helpdesk-data:/data
     restart: unless-stopped
@@ -21,7 +21,7 @@ services:
     container_name: uptime-kuma
     profiles: ["monitoring"]
     ports:
-      - "3001:3001"
+      - "${KUMA_PORT:-3001}:3001"       # port 3001 busy? set KUMA_PORT=3002
     volumes:
       - uptime-kuma-data:/app/data
     restart: unless-stopped
