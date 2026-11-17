@@ -101,34 +101,31 @@ GitHub-та **New issue → Release** шаблоны бар ([`.github/ISSUE_TEM
 
 ### 6.2. Деректердің сақтық көшірмесі (релизге дейін)
 
-```bash
-# контейнер ішіндегі SQLite базасы /data/helpdesk.db
-docker cp helpdesk:/data/helpdesk.db backups/helpdesk-$(date +%Y%m%d-%H%M)-before-vX.Y.Z.db
-```
+[Runbook RB-01](runbook-restore.md), 1-бөлім. Көшірме `sqlite3.backup()` арқылы жасалады.
+
+> v0.4.0-ден бастап база WAL режимінде жұмыс істейді. Бұрынғы `docker cp helpdesk:/data/helpdesk.db` командасы
+> соңғы өзгерістерді (`-wal` файлында) жоғалтуы мүмкін, сондықтан ол алынып тасталды (postmortem #7, A3).
 
 ### 6.3. Кері қайтару қадамдары
 
-```bash
-# 1. Алдыңғы жұмыс істеген нұсқаны анықтау (релиз issue-де жазылған), мысалы 0.1.0
-PREV=0.1.0
+Стенд тек `docker compose` арқылы басқарылады — жаю нұсқаулығының бір көзі (postmortem #7, A3).
 
-# 2. Ағымдағы контейнерді тоқтатып, алдыңғы бейнені іске қосу
-docker stop helpdesk && docker rm helpdesk
-docker pull ghcr.io/southkz0717-source/helpdesk:$PREV
-docker run -d --name helpdesk -p 8000:8000 -v helpdesk-data:/data \
-  ghcr.io/southkz0717-source/helpdesk:$PREV
+```powershell
+# 1. Алдыңғы жұмыс істеген нұсқаны анықтау (релиз issue-де жазылған), мысалы 0.3.1
+$env:HELPDESK_VERSION = "0.3.1"
 
-# 3. Тексеру: нұсқа алдыңғыға оралды
-curl -s http://localhost:8000/health   # {"status":"ok","version":"0.1.0"}
+# 2. Алдыңғы бейнеге ауысу. Деректер атаулы томда қалады
+docker compose up -d helpdesk
+
+# 3. Тексеру: нұсқа алдыңғыға оралды, деректер орнында
+curl.exe -s http://127.0.0.1:8000/health     # "version":"0.3.1", "persistent_storage":true
+curl.exe -s http://127.0.0.1:8000/api/stats  # "total" релизге дейінгімен бірдей
 ```
 
-**Деректерді қалпына келтіру** тек 4-критерий бойынша (деректер бұзылғанда) жасалады, себебі сақтық көшірмеден кейін жасалған өтінімдер жоғалады:
+Кейін соңғы нұсқаға қайту: `Remove-Item Env:HELPDESK_VERSION; docker compose up -d helpdesk`.
 
-```bash
-docker stop helpdesk
-docker cp backups/helpdesk-<уақыты>-before-vX.Y.Z.db helpdesk:/data/helpdesk.db
-docker start helpdesk
-```
+**Деректерді қалпына келтіру** тек 4-критерий бойынша (деректер бұзылғанда) жасалады, себебі сақтық көшірмеден кейін жасалған өтінімдер жоғалады.
+Қадамдар: [Runbook RB-01](runbook-restore.md), 2–5-бөлімдер.
 
 Жоғалған өтінімдердің тізімі тапсырыс берушіге хабарланады.
 
@@ -156,7 +153,7 @@ docker start helpdesk
 
 ### 6.6. Кері қайтаруды оқу-жаттығу
 
-Тексерілмеген кері қайтару жұмыс істемейді. Сондықтан әр **үлкен** релизге дейін және кемінде айына бір рет стендте 6.3-бөлім толық жүгіртіледі. Нәтижесі 10-бөлімдегі журналға жазылады: қанша минут кетті және не кедергі жасады.
+Тексерілмеген кері қайтару жұмыс істемейді. Сондықтан әр **үлкен** релизге дейін және кемінде айына бір рет стендте 6.3-бөлім және [RB-01](runbook-restore.md) толық жүгіртіледі. Нәтижесі 10-бөлімдегі журналға жазылады: қанша минут кетті және не кедергі жасады.
 
 ## 7. Feature flags
 
