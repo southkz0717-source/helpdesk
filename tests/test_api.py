@@ -1,16 +1,6 @@
 from datetime import datetime, timedelta
 
 import pytest
-from fastapi.testclient import TestClient
-
-from app.main import app
-
-
-@pytest.fixture
-def client(tmp_path, monkeypatch):
-    monkeypatch.setenv("HELPDESK_DB", str(tmp_path / "test.db"))
-    with TestClient(app) as c:
-        yield c
 
 
 def make_ticket(client, priority="P2", title="Принтер не печатает"):
@@ -112,7 +102,7 @@ def test_ticket_page_shows_local_time(client, monkeypatch):
 
 
 def test_health_reports_version(client):
-    assert client.get("/health").json()["version"] == "0.3.0"
+    assert client.get("/health").json()["version"] == "0.3.1"
 
 
 def test_search_is_case_insensitive_for_cyrillic_and_kazakh(client):
