@@ -1,6 +1,7 @@
 # Demo stand. The named volume keeps tickets across upgrades and rollbacks.
-#   docker compose up -d                 start / upgrade to the latest release
+#   docker compose up -d                          start / upgrade to the latest release
 #   HELPDESK_VERSION=0.3.0 docker compose up -d   pin or roll back to a version
+#   docker compose --profile monitoring up -d     also start Uptime Kuma on http://localhost:3001
 services:
   helpdesk:
     image: ghcr.io/southkz0717-source/helpdesk:${HELPDESK_VERSION:-latest}
@@ -11,5 +12,20 @@ services:
       - helpdesk-data:/data
     restart: unless-stopped
 
+  # Monitoring of the demo stand (lab 11). Monitor to create in the UI:
+  #   type HTTP(s) - Keyword, URL http://helpdesk:8000/health,
+  #   keyword "persistent_storage":true, interval 60 s, retries 3
+  # It alerts both when the service is down and when it runs without a volume (incident #7).
+  uptime-kuma:
+    image: louislam/uptime-kuma:1.23.16
+    container_name: uptime-kuma
+    profiles: ["monitoring"]
+    ports:
+      - "3001:3001"
+    volumes:
+      - uptime-kuma-data:/app/data
+    restart: unless-stopped
+
 volumes:
   helpdesk-data:
+  uptime-kuma-data:

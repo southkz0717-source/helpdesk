@@ -1,0 +1,4 @@
+Method,Name,Error,Occurrences,First Seen,Last Seen
+POST,POST /api/tickets/{id}/status,HTTPError('500 Server Error: Internal Server Error for url: POST /api/tickets/{id}/status'),14,2026-11-17T19:52:31Z,2026-11-17T19:53:18Z
+GET,GET search,"ConnectionResetError(10054, 'An existing connection was forcibly closed by the remote host', None, 10054, None)",1,2026-11-17T19:51:59Z,2026-11-17T19:51:59Z
+POST,POST /api/tickets,HTTPError('500 Server Error: Internal Server Error for url: POST /api/tickets'),39,2026-11-17T19:52:14Z,2026-11-17T19:53:18Z

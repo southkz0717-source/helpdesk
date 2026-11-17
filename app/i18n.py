@@ -29,6 +29,7 @@ TEXTS: dict[str, dict[str, str]] = {
         "search_placeholder": "Тақырып, өтініш беруші немесе сипаттама",
         "reset": "Тазалау",
         "found": "Табылды",
+        "shown": "Көрсетілген",
     },
     "ru": {
         "app_title": "Служба поддержки",
@@ -55,6 +56,7 @@ TEXTS: dict[str, dict[str, str]] = {
         "search_placeholder": "Тема, заявитель или описание",
         "reset": "Сбросить",
         "found": "Найдено",
+        "shown": "Показано",
     },
     "en": {
         "app_title": "Helpdesk",
@@ -81,6 +83,7 @@ TEXTS: dict[str, dict[str, str]] = {
         "search_placeholder": "Title, requester or description",
         "reset": "Reset",
         "found": "Found",
+        "shown": "Shown",
     },
 }
 

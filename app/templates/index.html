@@ -27,7 +27,8 @@
     <button type="submit">{{ t.search }}</button>
     {% if q %}<a href="/?lang={{ lang }}">{{ t.reset }}</a>{% endif %}
   </form>
-  {% if q %}<p class="muted">{{ t.found }}: {{ tickets|length }}</p>{% endif %}
+  {% if q %}<p class="muted">{{ t.found }}: {{ total }}</p>{% endif %}
+  {% if total > tickets|length %}<p class="muted">{{ t.shown }}: {{ tickets|length }} / {{ total }}</p>{% endif %}
   {% if tickets %}
   <div class="scroll">
   <table>

@@ -15,7 +15,7 @@ from app.sla import Priority, Status, can_transition, is_breached
 from app.storage import storage_status, warn_if_ephemeral
 from app.timefmt import localtime, tz_label
 
-__version__ = "0.3.1"
+__version__ = "0.4.0"
 
 TEMPLATES = Jinja2Templates(directory=Path(__file__).parent / "templates")
 TEMPLATES.env.filters["localtime"] = localtime
@@ -90,6 +90,8 @@ def api_create_ticket(payload: TicketIn) -> dict:
     return with_sla_flags(ticket)
 
 
+PAGE_SIZE = 50  # tickets shown on the list page
+
 SearchQuery = Annotated[
     str | None, Query(max_length=100, description="Search in title, requester, description")
 ]
@@ -97,9 +99,12 @@ SearchQuery = Annotated[
 
 @app.get("/api/tickets")
 def api_list_tickets(
-    status: Status | None = None, priority: Priority | None = None, q: SearchQuery = None
+    status: Status | None = None,
+    priority: Priority | None = None,
+    q: SearchQuery = None,
+    limit: Annotated[int, Query(ge=1, le=500)] = 100,
 ) -> list[dict]:
-    return [with_sla_flags(t) for t in db.list_tickets(status, priority, q)]
+    return [with_sla_flags(t) for t in db.list_tickets(status, priority, q, limit)]
 
 
 @app.get("/api/tickets/{ticket_id}")
@@ -139,8 +144,9 @@ def render(request: Request, name: str, lang: str | None, **context) -> HTMLResp
 
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request, lang: str | None = None, q: SearchQuery = None) -> HTMLResponse:
-    tickets = [with_sla_flags(t) for t in db.list_tickets(q=q)]
-    return render(request, "index.html", lang, tickets=tickets, q=(q or "").strip())
+    tickets = [with_sla_flags(t) for t in db.list_tickets(q=q, limit=PAGE_SIZE)]
+    total = db.count_tickets(q=q)
+    return render(request, "index.html", lang, tickets=tickets, total=total, q=(q or "").strip())
 
 
 @app.post("/tickets")
