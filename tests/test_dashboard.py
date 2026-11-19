@@ -68,3 +68,18 @@ def test_empty_database():
     d = compute([], NOW, TZ)
     assert d["open"] == 0 and d["sla_compliance"] is None and d["avg_resolve_hours"] is None
     assert len(d["days"]) == 7 and d["urgent"] == []
+
+
+def test_load_by_assignee():
+    tickets = [
+        ticket(1, "P1", "new") | {"assignee": "Ерлан"},
+        ticket(2, "P2", "in_progress") | {"assignee": "Ерлан"},
+        ticket(3, "P3", "new") | {"assignee": "Айгерім"},
+        ticket(4, "P3", "new"),
+        ticket(5, "P3", "closed", resolved=NOW) | {"assignee": "Айгерім"},  # closed: not load
+    ]
+    assert compute(tickets, NOW, TZ)["by_assignee"] == [
+        {"name": "Ерлан", "count": 2},
+        {"name": "Айгерім", "count": 1},
+        {"name": None, "count": 1},
+    ]

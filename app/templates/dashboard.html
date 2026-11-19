@@ -14,7 +14,7 @@
     .kpis .kpi:last-child { grid-column: span 2; }
     .kpi { padding: 12px 14px; }
     .kpi .value { font-size: 26px; }
-    .hbar { grid-template-columns: 92px minmax(0, 1fr) 32px; }
+    .hbar, .hbar.wide { grid-template-columns: 110px minmax(0, 1fr) 32px; }
   }
   .kpi.critical .label, .kpi.critical .value { color: var(--critical); }
 
@@ -52,6 +52,7 @@
   .hbar .track { height: 10px; background: var(--surface-2); border-radius: 0 4px 4px 0; overflow: hidden; }
   .hbar .fill { height: 100%; background: var(--series-1); border-radius: 0 4px 4px 0; min-width: 2px; }
   .hbar .fill.zero { min-width: 0; }
+  .hbar.wide { grid-template-columns: 160px minmax(0, 1fr) 40px; }
   .hbar .n { text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
 </style>
 {% endblock %}
@@ -174,6 +175,30 @@
     </div>
   </section>
 </div>
+
+<section class="card">
+  <div class="card-head">
+    <div>
+      <h2>{{ t.by_assignee }}</h2>
+      <p>{{ t.by_assignee_sub }}</p>
+    </div>
+  </div>
+  {% if d.by_assignee %}
+  {% set amax = (d.by_assignee | map(attribute="count") | max) %}
+  <div class="hbars">
+    {% for row in d.by_assignee %}
+    <div class="hbar wide">
+      {% if row.name %}<a class="ticket-link" href="/?lang={{ lang }}&assignee={{ row.name | urlencode }}">{{ row.name }}</a>
+      {% else %}<a class="ticket-link muted" href="/?lang={{ lang }}&assignee=__none__">{{ t.unassigned }}</a>{% endif %}
+      <div class="track"><div class="fill" style="width: {{ (100 * row.count / amax) | round(1) }}%"></div></div>
+      <span class="n">{{ row.count }}</span>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="empty">{{ t.no_open }}</p>
+  {% endif %}
+</section>
 
 <section class="card">
   <div class="card-head">

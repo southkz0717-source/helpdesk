@@ -30,9 +30,9 @@ def test_create_ticket_and_see_sla(page: Page):
     """UAT-01: a user files a P2 ticket and sees both SLA deadlines in local time."""
     title = unique("Принтер 305 аудиторияда басып шығармайды")
     page.goto("/?lang=kk")
-    page.get_by_label("Тақырып").fill(title)
-    page.get_by_label("Өтініш беруші").fill("Айгерім")
-    page.get_by_label("Басымдық").select_option("P2")
+    page.get_by_label("Тақырып", exact=True).fill(title)
+    page.get_by_label("Өтініш беруші", exact=True).fill("Айгерім")
+    page.get_by_label("Басымдық", exact=True).select_option("P2")
     page.get_by_role("button", name="Жіберу").click()
 
     expect(page).to_have_url(re.compile(r"/tickets/\d+"))
@@ -130,3 +130,34 @@ def test_no_horizontal_scroll_on_phone(page: Page, base_url: str):
         page.goto(path)
         width = page.evaluate("document.documentElement.scrollWidth")
         assert width <= 375, f"{path} is {width}px wide"
+
+
+def test_comment_assign_and_history(page: Page, base_url: str):
+    """An operator takes a ticket, comments and sees it all in the history."""
+    tid = api_create(base_url, unique("Почта не работает"), "P2")
+    page.goto(f"/tickets/{tid}?lang=ru")
+    page.get_by_label("Исполнитель").fill("Ерлан")
+    page.get_by_role("button", name="Назначить").click()
+    page.get_by_label("Ваше имя").fill("Ерлан")
+    page.get_by_label("Комментарий").fill("Проверяю настройки почты")
+    page.get_by_role("button", name="Добавить комментарий").click()
+    history = page.locator("#history")
+    expect(history).to_contain_text("Назначена: Ерлан")
+    expect(history).to_contain_text("Проверяю настройки почты")
+    # the name is remembered for the next comment
+    page.reload()
+    expect(page.get_by_label("Ваше имя")).to_have_value("Ерлан")
+
+
+def test_filter_applies_on_change(page: Page, base_url: str):
+    marker = uuid.uuid4().hex[:6]
+    api_create(base_url, f"Critical {marker}", "P1")
+    api_create(base_url, f"Minor {marker}", "P4")
+    page.goto(f"/?lang=en&q={marker}")
+    page.get_by_label("By priority").select_option("P4")  # no button press: auto-submits
+    expect(page).to_have_url(re.compile(r"priority=P4"))
+    expect(page.get_by_role("link", name=f"Minor {marker}")).to_be_visible()
+    expect(page.get_by_role("link", name=f"Critical {marker}")).to_have_count(0)
+    # the CSV link carries the same filters
+    href = page.get_by_role("link", name=re.compile("Download CSV")).get_attribute("href")
+    assert "priority=P4" in href and f"q={marker}" in href

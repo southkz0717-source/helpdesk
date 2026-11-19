@@ -7,6 +7,27 @@
   .mini span { display: block; color: var(--muted); font-size: 13px; font-weight: 600; }
   .mini strong { display: block; font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 2px; }
   .mini.alert strong { color: var(--critical); }
+  .filters { margin-bottom: 8px; }
+  .filter-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)) auto; gap: 10px; align-items: end; }
+  .filter-row label { margin-top: 0; }
+  .filter-row button { margin-top: 0; }
+  button.secondary { background: var(--surface-2); color: var(--text); border: 1px solid var(--line); }
+  button.secondary:hover { background: var(--accent-soft); color: var(--accent); }
+  :root[data-theme="dark"] button.secondary { color: var(--text); }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) button.secondary { color: var(--text); } }
+  .list-meta { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin: 8px 0 4px; min-height: 22px; }
+  .csv { font-size: 13px; font-weight: 600; text-decoration: none; }
+  .person { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
+  .pager { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 14px; font-size: 14px; }
+  .pager a, .pager span.disabled { padding: 6px 10px; border-radius: 8px; text-decoration: none; }
+  .pager a:hover { background: var(--accent-soft); }
+  .pager .disabled { color: var(--muted); }
+  .pages { display: flex; gap: 4px; align-items: center; }
+  .pages .current { padding: 6px 11px; border-radius: 8px; background: var(--accent); color: #fff; font-weight: 700; }
+  :root[data-theme="dark"] .pages .current { color: #0b0b0b; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .pages .current { color: #0b0b0b; } }
+  .pages .gap { color: var(--muted); padding: 0 2px; }
+  @media (max-width: 1000px) { .filter-row { grid-template-columns: 1fr 1fr; } .filter-row button { grid-column: span 2; } }
   @media (max-width: 560px) { .mini-stats { grid-template-columns: 1fr 1fr; } .mini:last-child { grid-column: span 2; } }
 </style>
 {% endblock %}
@@ -47,20 +68,59 @@
   <section class="card">
     <div class="card-head">
       <h2>{{ t.tickets }}</h2>
-      {% if total > tickets|length %}<span class="muted">{{ t.shown }}: {{ tickets|length }} / {{ total }}</span>{% endif %}
+      {% if pages > 1 %}<span class="muted">{{ t.page }} {{ page_no }} / {{ pages }} · {{ total }}</span>{% endif %}
     </div>
-    <form method="get" action="/" class="search" role="search">
+    <form method="get" action="/" class="filters" role="search" id="filters">
       <input type="hidden" name="lang" value="{{ lang }}">
-      <label for="q" class="sr-only">{{ t.search }}</label>
-      <input id="q" name="q" type="search" value="{{ q }}" maxlength="100" placeholder="{{ t.search_placeholder }}">
-      <button type="submit">{{ t.search }}</button>
-      {% if q %}<a href="/?lang={{ lang }}">{{ t.reset }}</a>{% endif %}
+      <div class="search">
+        <label for="q" class="sr-only">{{ t.search }}</label>
+        <input id="q" name="q" type="search" value="{{ q }}" maxlength="100" placeholder="{{ t.search_placeholder }}">
+        <button type="submit">{{ t.search }}</button>
+      </div>
+      <div class="filter-row">
+        <div>
+          <label for="f-status">{{ t.filter_status }}</label>
+          <select id="f-status" name="status" data-autosubmit>
+            <option value="">{{ t.any }}</option>
+            {% for s in ["new", "in_progress", "resolved", "closed"] %}<option value="{{ s }}" {{ 'selected' if f.status and f.status.value == s else '' }}>{{ t[s] }}</option>{% endfor %}
+          </select>
+        </div>
+        <div>
+          <label for="f-priority">{{ t.filter_priority }}</label>
+          <select id="f-priority" name="priority" data-autosubmit>
+            <option value="">{{ t.any }}</option>
+            {% for p in priorities %}<option value="{{ p.value }}" {{ 'selected' if f.priority == p else '' }}>{{ p.value }}</option>{% endfor %}
+          </select>
+        </div>
+        <div>
+          <label for="f-assignee">{{ t.filter_assignee }}</label>
+          <select id="f-assignee" name="assignee" data-autosubmit>
+            <option value="">{{ t.any }}</option>
+            <option value="{{ unassigned }}" {{ 'selected' if f.assignee == unassigned else '' }}>{{ t.unassigned }}</option>
+            {% for a in assignees %}<option value="{{ a }}" {{ 'selected' if f.assignee == a else '' }}>{{ a }}</option>{% endfor %}
+          </select>
+        </div>
+        <div>
+          <label for="f-sort">{{ t.sort }}</label>
+          <select id="f-sort" name="sort" data-autosubmit>
+            {% for so in ["queue", "newest", "oldest", "due"] %}<option value="{{ so }}" {{ 'selected' if f.sort == so else '' }}>{{ t["sort_" ~ so] }}</option>{% endfor %}
+          </select>
+        </div>
+        <button type="submit" class="secondary">{{ t.apply }}</button>
+      </div>
     </form>
-    {% if q %}<p class="muted">{{ t.found }}: {{ total }}</p>{% endif %}
+    <div class="list-meta">
+      <span class="muted">
+        {% if q %}{{ t.found }}: {{ total }}{% if filtered %} · {% endif %}{% endif %}
+        {% if filtered %}<a href="/?{{ qs(status=None, priority=None, assignee=None, sort=None) }}">{{ t.clear_filters }}</a>{% endif %}
+        {% if q %} · <a href="/?{{ qs(q=None) }}">{{ t.reset }}</a>{% endif %}
+      </span>
+      <a class="csv" href="/export.csv?{{ qs() }}" download>⬇ {{ t.export_csv }}</a>
+    </div>
     {% if tickets %}
     <div class="scroll">
     <table>
-      <thead><tr><th>#</th><th>{{ t.title }}</th><th>{{ t.priority }}</th><th>{{ t.status }}</th><th>{{ t.resolve_due }} ({{ tz_label() }})</th></tr></thead>
+      <thead><tr><th>#</th><th>{{ t.title }}</th><th>{{ t.priority }}</th><th>{{ t.status }}</th><th>{{ t.assignee }}</th><th>{{ t.resolve_due }} ({{ tz_label() }})</th></tr></thead>
       <tbody>
       {% for tk in tickets %}
         <tr>
@@ -68,6 +128,7 @@
           <td><a class="ticket-link" href="/tickets/{{ tk.id }}?lang={{ lang }}">{{ tk.title }}</a></td>
           <td><span class="badge {{ tk.priority }}">{{ tk.priority }}</span></td>
           <td><span class="status {{ tk.status }}">{{ t[tk.status] }}</span></td>
+          <td>{% if tk.assignee %}<span class="person">{{ tk.assignee }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
           <td style="white-space:nowrap">
             {{ tk.resolve_due | localtime }}
             {% if tk.response_breached or tk.resolve_breached %}<br><span class="breached">⚠ {{ t.breached }}</span>{% endif %}
@@ -77,9 +138,30 @@
       </tbody>
     </table>
     </div>
+    {% if pages > 1 %}
+    <nav class="pager" aria-label="{{ t.page }}">
+      {% if page_no > 1 %}<a href="/?{{ qs(page=page_no - 1) }}" rel="prev">{{ t.prev }}</a>{% else %}<span class="disabled">{{ t.prev }}</span>{% endif %}
+      <span class="pages">
+        {% for n in page_window %}
+          {% if n is none %}<span class="gap">…</span>
+          {% elif n == page_no %}<span class="current" aria-current="page">{{ n }}</span>
+          {% else %}<a href="/?{{ qs(page=n) }}">{{ n }}</a>{% endif %}
+        {% endfor %}
+      </span>
+      {% if page_no < pages %}<a href="/?{{ qs(page=page_no + 1) }}" rel="next">{{ t.next }}</a>{% else %}<span class="disabled">{{ t.next }}</span>{% endif %}
+    </nav>
+    {% endif %}
     {% else %}
     <p class="empty">{{ t.no_tickets }}</p>
     {% endif %}
   </section>
 </div>
+{% endblock %}
+{% block scripts %}
+<script>
+  // filters apply as soon as a value is picked; the Apply button still works without JS
+  document.querySelectorAll("[data-autosubmit]").forEach(function (el) {
+    el.addEventListener("change", function () { el.form.submit(); });
+  });
+</script>
 {% endblock %}

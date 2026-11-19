@@ -70,4 +70,18 @@ def compute(tickets: list[dict], now: datetime, tz: ZoneInfo, days: int = 7) -> 
             for d in day_list
         ],
         "urgent": urgent,
+        "by_assignee": by_assignee(open_tickets),
     }
+
+
+def by_assignee(open_tickets: list[dict]) -> list[dict]:
+    """Open tickets per person, busiest first; the unassigned bucket always goes last."""
+    counts: dict[str, int] = {}
+    for t in open_tickets:
+        name = (t.get("assignee") or "").strip()
+        counts[name] = counts.get(name, 0) + 1
+    named = sorted(((n, c) for n, c in counts.items() if n), key=lambda x: (-x[1], x[0].casefold()))
+    rows = [{"name": n, "count": c} for n, c in named]
+    if counts.get(""):
+        rows.append({"name": None, "count": counts[""]})
+    return rows
