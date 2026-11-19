@@ -1,36 +1,145 @@
 {% extends "base.html" %}
-{% block content %}
-<p><a href="/?lang={{ lang }}">← {{ t.back }}</a></p>
-<section class="card">
-  <h2>#{{ ticket.id }} · {{ ticket.title }}</h2>
-  <p>{{ ticket.description }}</p>
-  <table>
-    <tr><th>{{ t.requester }}</th><td>{{ ticket.requester }}</td></tr>
-    <tr><th>{{ t.priority }}</th><td><span class="badge">{{ ticket.priority }}</span></td></tr>
-    <tr><th>{{ t.status }}</th><td>{{ t[ticket.status] }}</td></tr>
-    <tr><th>{{ t.created }}</th><td>{{ ticket.created_at | localtime }}</td></tr>
-    <tr><th>{{ t.response_due }}</th><td>
-      {{ ticket.response_due | localtime }}
-      {% if ticket.response_breached %}<span class="breached">· {{ t.breached }}</span>{% endif %}
-    </td></tr>
-    <tr><th>{{ t.resolve_due }}</th><td>
-      {{ ticket.resolve_due | localtime }}
-      {% if ticket.resolve_breached %}<span class="breached">· {{ t.breached }}</span>{% endif %}
-    </td></tr>
-  </table>
-  <p style="color:var(--muted);font-size:13px">{{ tz_label() }}</p>
-</section>
+{% block title %}#{{ ticket.id }} · {{ ticket.title }} · {{ t.app_title }}{% endblock %}
+{% block head %}
+<style>
+  .ticket-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 8px 0 6px; }
+  .ticket-head h2 { font-size: 22px; flex: 1 1 100%; }
+  .desc { color: var(--text-2); margin: 10px 0 0; white-space: pre-wrap; }
+  .details th { width: 40%; color: var(--muted); font-weight: 600; font-size: 13px; text-transform: none; letter-spacing: 0; }
+  .details td, .details th { padding: 11px 10px; }
+  .details tr:hover { background: transparent; }
+  .details tr:last-child th, .details tr:last-child td { border-bottom: 0; }
+  .ticket-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 20px; align-items: start; }
+  .ticket-grid .card { margin-bottom: 20px; }
+  .side .card:last-child { margin-bottom: 0; }
+  .hint { color: var(--muted); font-size: 12px; margin: 6px 0 0; }
+  @media (max-width: 860px) { .ticket-grid { grid-template-columns: minmax(0, 1fr); } }
 
-{% if allowed %}
-<section class="card">
-  <form method="post" action="/tickets/{{ ticket.id }}/status">
-    <input type="hidden" name="lang" value="{{ lang }}">
-    <label for="status">{{ t.change_status }}</label>
-    <select id="status" name="status">
-      {% for s in allowed %}<option value="{{ s }}">{{ t[s] }}</option>{% endfor %}
-    </select>
-    <button type="submit">{{ t.submit }}</button>
-  </form>
-</section>
-{% endif %}
+  .timeline { list-style: none; margin: 0; padding: 0; position: relative; }
+  .timeline::before { content: ""; position: absolute; left: 13px; top: 6px; bottom: 6px; width: 2px; background: var(--line); }
+  .timeline li { position: relative; padding: 0 0 16px 40px; }
+  .timeline li:last-child { padding-bottom: 0; }
+  .dot { position: absolute; left: 4px; top: 1px; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center;
+         background: var(--surface); border: 2px solid var(--line); font-size: 11px; line-height: 1; }
+  .dot.created { border-color: var(--series-1); color: var(--series-1); }
+  .dot.status { border-color: var(--good); color: var(--good); }
+  .dot.assigned { border-color: var(--warning); color: var(--warning); }
+  .dot.comment { border-color: var(--accent); color: var(--accent); }
+  .ev-line { font-size: 14px; }
+  .ev-line b { font-weight: 600; }
+  .ev-time { color: var(--muted); font-size: 12px; margin-left: 6px; white-space: nowrap; }
+  .bubble { margin-top: 6px; padding: 10px 12px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 0 10px 10px 10px;
+            white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; }
+  .comment-form { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
+  .comment-form .row { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 10px; }
+  @media (max-width: 560px) { .comment-form .row { grid-template-columns: minmax(0, 1fr); } }
+</style>
+{% endblock %}
+{% block content %}
+<p style="margin:0 0 12px"><a href="/?lang={{ lang }}">← {{ t.back }}</a></p>
+<div class="ticket-grid">
+  <div>
+    <section class="card">
+      <div class="ticket-head">
+        <span class="badge {{ ticket.priority }}">{{ ticket.priority }}</span>
+        <span class="status {{ ticket.status }}">{{ t[ticket.status] }}</span>
+        <h2>#{{ ticket.id }} · {{ ticket.title }}</h2>
+      </div>
+      {% if ticket.description %}<p class="desc">{{ ticket.description }}</p>{% endif %}
+      <table class="details" style="margin-top:16px">
+        <tr><th>{{ t.requester }}</th><td>{{ ticket.requester }}</td></tr>
+        <tr><th>{{ t.assignee }}</th><td>{{ ticket.assignee or t.unassigned }}</td></tr>
+        <tr><th>{{ t.priority }}</th><td><span class="badge {{ ticket.priority }}">{{ ticket.priority }}</span></td></tr>
+        <tr><th>{{ t.status }}</th><td>{{ t[ticket.status] }}</td></tr>
+        <tr><th>{{ t.created }}</th><td>{{ ticket.created_at | localtime }}</td></tr>
+        <tr><th>{{ t.response_due }}</th><td>
+          {{ ticket.response_due | localtime }}
+          {% if ticket.response_breached %}<span class="breached">⚠ {{ t.breached }}</span>{% endif %}
+        </td></tr>
+        <tr><th>{{ t.resolve_due }}</th><td>
+          {{ ticket.resolve_due | localtime }}
+          {% if ticket.resolve_breached %}<span class="breached">⚠ {{ t.breached }}</span>{% endif %}
+        </td></tr>
+      </table>
+      <p class="muted" style="margin:10px 0 0">{{ tz_label() }}</p>
+    </section>
+
+    <section class="card" id="history">
+      <div class="card-head"><h3 style="font-size:18px">{{ t.history }}</h3><span class="muted">{{ events | length + 1 }}</span></div>
+      <ol class="timeline">
+        <li>
+          <span class="dot created" aria-hidden="true">＋</span>
+          <div class="ev-line"><b>{{ t.ev_created }}</b> · {{ ticket.requester }}<span class="ev-time">{{ ticket.created_at | localtime }}</span></div>
+        </li>
+        {% for e in events %}
+        <li>
+          {% if e.kind == "status" %}
+            <span class="dot status" aria-hidden="true">↻</span>
+            <div class="ev-line"><b>{{ t.ev_status }}</b>: {{ t[e.from_value] }} → <b>{{ t[e.to_value] }}</b>{% if e.author %} · {{ e.author }}{% endif %}<span class="ev-time">{{ e.created_at | localtime }}</span></div>
+          {% elif e.kind == "assigned" %}
+            <span class="dot assigned" aria-hidden="true">👤</span>
+            <div class="ev-line">{% if e.to_value %}<b>{{ t.ev_assigned }}</b>: {{ e.to_value }}{% else %}<b>{{ t.ev_unassigned }}</b>{% if e.from_value %}: {{ e.from_value }}{% endif %}{% endif %}{% if e.author %} · {{ e.author }}{% endif %}<span class="ev-time">{{ e.created_at | localtime }}</span></div>
+          {% else %}
+            <span class="dot comment" aria-hidden="true">✎</span>
+            <div class="ev-line"><b>{{ e.author or t.system }}</b> {{ t.ev_comment }}<span class="ev-time">{{ e.created_at | localtime }}</span></div>
+            <div class="bubble">{{ e.body }}</div>
+          {% endif %}
+        </li>
+        {% endfor %}
+      </ol>
+
+      <form class="comment-form" method="post" action="/tickets/{{ ticket.id }}/comment">
+        <input type="hidden" name="lang" value="{{ lang }}">
+        <div class="row">
+          <div>
+            <label for="c-author" style="margin-top:0">{{ t.your_name }}</label>
+            <input id="c-author" name="author" required minlength="2" maxlength="100" autocomplete="name">
+          </div>
+          <div>
+            <label for="c-body" style="margin-top:0">{{ t.comment }}</label>
+            <textarea id="c-body" name="body" rows="3" required maxlength="2000" placeholder="{{ t.comment_placeholder }}"></textarea>
+          </div>
+        </div>
+        <button type="submit">{{ t.add_comment }}</button>
+      </form>
+    </section>
+  </div>
+
+  <div class="side">
+    {% if allowed %}
+    <section class="card">
+      <form method="post" action="/tickets/{{ ticket.id }}/status">
+        <input type="hidden" name="lang" value="{{ lang }}">
+        <label for="status" style="margin-top:0">{{ t.change_status }}</label>
+        <select id="status" name="status">
+          {% for s in allowed %}<option value="{{ s }}">{{ t[s] }}</option>{% endfor %}
+        </select>
+        <button type="submit" class="btn-block">{{ t.submit }}</button>
+      </form>
+    </section>
+    {% endif %}
+    <section class="card">
+      <form method="post" action="/tickets/{{ ticket.id }}/assign">
+        <input type="hidden" name="lang" value="{{ lang }}">
+        <label for="assignee" style="margin-top:0">{{ t.assignee }}</label>
+        <input id="assignee" name="assignee" list="assignee-list" value="{{ ticket.assignee or '' }}" maxlength="100" autocomplete="off">
+        <datalist id="assignee-list">{% for a in assignees %}<option value="{{ a }}">{% endfor %}</datalist>
+        <p class="hint">{{ t.assign_hint }}</p>
+        <button type="submit" class="btn-block">{{ t.assign }}</button>
+      </form>
+    </section>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  // remember the commenter's name on this device (storage may be blocked: then just skip)
+  (function () {
+    var input = document.getElementById("c-author");
+    try { input.value = localStorage.getItem("helpdesk-name") || ""; } catch (e) {}
+    input.form.addEventListener("submit", function () {
+      try { localStorage.setItem("helpdesk-name", input.value.trim()); } catch (e) {}
+    });
+  })();
+</script>
 {% endblock %}

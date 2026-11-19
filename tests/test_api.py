@@ -102,7 +102,7 @@ def test_ticket_page_shows_local_time(client, monkeypatch):
 
 
 def test_health_reports_version(client):
-    assert client.get("/health").json()["version"] == "0.4.0"
+    assert client.get("/health").json()["version"] == "0.5.0"
 
 
 def test_search_is_case_insensitive_for_cyrillic_and_kazakh(client):
@@ -157,7 +157,10 @@ def test_list_page_is_limited_and_shows_total(client, monkeypatch):
         make_ticket(client, title=f"Ticket number {i}")
     page = client.get("/", params={"lang": "en"}).text
     assert page.count("Ticket number") == 3
-    assert "Shown: 3 / 5" in page
+    assert "Page 1 / 2" in page  # 5 tickets, 3 per page
+    page2 = client.get("/", params={"lang": "en", "page": 2}).text
+    assert page2.count("Ticket number") == 2
+    assert 'aria-current="page">2<' in page2
 
 
 def test_api_limit(client):
@@ -182,3 +185,176 @@ def test_database_uses_wal(client, tmp_path):
     conn = sqlite3.connect(tmp_path / "test.db")
     assert conn.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
     conn.close()
+
+
+@pytest.mark.parametrize(
+    "lang,heading", [("kk", "Басқару тақтасы"), ("ru", "Панель управления"), ("en", "Dashboard")]
+)
+def test_dashboard_page(client, lang, heading):
+    make_ticket(client, priority="P1")
+    page = client.get("/dashboard", params={"lang": lang})
+    assert page.status_code == 200
+    assert heading in page.text
+    assert page.text.count('class="group"') == 14  # 7 days x (desktop + phone chart)
+
+
+def test_dashboard_api(client):
+    make_ticket(client, priority="P1")
+    tid = make_ticket(client, priority="P3")["id"]
+    for status in ("in_progress", "resolved"):
+        client.post(f"/api/tickets/{tid}/status", json={"status": status})
+    d = client.get("/api/dashboard").json()
+    assert d["total"] == 2 and d["open"] == 1 and d["open_p1"] == 1
+    assert d["days"][-1]["created"] == 2 and d["days"][-1]["resolved"] == 1
+    assert d["sla_compliance"] == 100
+    assert [t["priority"] for t in d["urgent"]] == ["P1"]
+
+
+def test_index_summary(client):
+    make_ticket(client, priority="P1")
+    make_ticket(client, priority="P2")
+    page = client.get("/", params={"lang": "en"}).text
+    assert "Open P1" in page and "All tickets" in page
+
+
+@pytest.mark.parametrize(
+    "peak,axis",
+    [
+        (1, (1, 1)),
+        (4, (1, 4)),
+        (5, (1, 5)),
+        (9, (2, 5)),
+        (20, (5, 4)),
+        (21, (5, 5)),
+        (180, (50, 4)),
+    ],
+)
+def test_nice_axis(peak, axis):
+    from app.main import nice_axis
+
+    step, count = nice_axis(peak)
+    assert (step, count) == axis
+    assert step * count >= peak and count <= 5
+
+
+# ---------- comments, history, assignment ----------
+
+
+def test_comment_and_history_api(client):
+    tid = make_ticket(client)["id"]
+    r = client.post(
+        f"/api/tickets/{tid}/comments", json={"author": "Ерлан", "body": "Тексеріп жатырмын"}
+    )
+    assert r.status_code == 201 and r.json()["kind"] == "comment"
+    client.post(f"/api/tickets/{tid}/assign", json={"assignee": "Ерлан"})
+    client.post(f"/api/tickets/{tid}/status", json={"status": "in_progress", "author": "Ерлан"})
+    kinds = [e["kind"] for e in client.get(f"/api/tickets/{tid}/events").json()]
+    assert kinds == ["comment", "assigned", "status"]
+    assert client.get("/api/assignees").json() == ["Ерлан"]
+    assert client.get(f"/api/tickets/{tid}").json()["assignee"] == "Ерлан"
+
+
+def test_comment_validation(client):
+    tid = make_ticket(client)["id"]
+    assert (
+        client.post(f"/api/tickets/{tid}/comments", json={"author": "E", "body": "x"}).status_code
+        == 422
+    )
+    assert (
+        client.post(
+            f"/api/tickets/{tid}/comments", json={"author": "Ерлан", "body": ""}
+        ).status_code
+        == 422
+    )
+    assert (
+        client.post("/api/tickets/999/comments", json={"author": "Ерлан", "body": "x"}).status_code
+        == 404
+    )
+
+
+def test_ticket_page_forms(client):
+    tid = make_ticket(client)["id"]
+    form = {"author": "Дана", "body": "<b>жоқ</b>", "lang": "ru"}
+    r = client.post(f"/tickets/{tid}/comment", data=form, follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == f"/tickets/{tid}?lang=ru#history"
+    client.post(f"/tickets/{tid}/assign", data={"assignee": "Дана", "lang": "ru"})
+    page = client.get(f"/tickets/{tid}", params={"lang": "ru"}).text
+    assert "История" in page and "Дана" in page
+    assert "&lt;b&gt;жоқ&lt;/b&gt;" in page  # comment text is escaped, not rendered as HTML
+
+
+def test_redirect_lang_cannot_be_injected(client):
+    tid = make_ticket(client)["id"]
+    r = client.post(f"/tickets/{tid}/assign", data={"assignee": "", "lang": "x\r\nSet-Cookie: a=b"},
+                    follow_redirects=False)  # fmt: skip
+    assert r.headers["location"] == f"/tickets/{tid}?lang=kk"
+
+
+# ---------- filters, sorting, pages ----------
+
+
+def test_html_filters(client):
+    a = make_ticket(client, priority="P1", title="Сервер құлады")["id"]
+    make_ticket(client, priority="P3", title="Принтер")
+    client.post(f"/api/tickets/{a}/assign", json={"assignee": "Ерлан"})
+    page = client.get("/", params={"lang": "kk", "priority": "P1"}).text
+    assert "Сервер құлады" in page and "Принтер" not in page
+    page = client.get("/", params={"lang": "kk", "assignee": "__none__"}).text
+    assert "Принтер" in page and "Сервер құлады" not in page
+    # empty values from the form and garbage mean "no filter", not an error
+    page = client.get("/", params={"status": "", "priority": "P9", "sort": "nope"})
+    assert page.status_code == 200 and "Принтер" in page.text and "Сервер құлады" in page.text
+
+
+def test_api_sort_and_offset(client):
+    ids = [make_ticket(client, priority="P3", title=f"Ticket {i}")["id"] for i in range(3)]
+    newest = client.get("/api/tickets", params={"sort": "newest", "limit": 1}).json()
+    assert newest[0]["id"] == ids[-1]
+    assert client.get("/api/tickets", params={"offset": 1, "limit": 5}).json()[0]["id"] == ids[1]
+    assert client.get("/api/tickets", params={"sort": "nope"}).status_code == 422
+
+
+def test_page_window():
+    from app.main import page_window
+
+    assert page_window(1, 1) == [1]
+    assert page_window(1, 4) == [1, 2, 3, 4]
+    assert page_window(10, 20) == [1, None, 8, 9, 10, 11, 12, None, 20]
+
+
+# ---------- CSV export ----------
+
+
+def test_csv_export(client):
+    tid = make_ticket(client, priority="P1", title='=HYPERLINK("http://evil")')["id"]
+    make_ticket(client, priority="P3", title="Принтер; 305 аудитория")
+    client.post(f"/api/tickets/{tid}/assign", json={"assignee": "Ерлан"})
+    r = client.get("/export.csv", params={"lang": "ru"})
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/csv")
+    assert "attachment" in r.headers["content-disposition"]
+    text = r.content.decode("utf-8")
+    assert text.startswith("﻿")  # BOM: Excel shows Cyrillic correctly
+    rows = [line.split(";") for line in text.lstrip("﻿").splitlines()]
+    assert rows[0][:3] == ["#", "Тема", "Заявитель"]
+    assert len(rows) == 3
+    assert "'=HYPERLINK" in text  # formula injection neutralised
+    assert '"Принтер; 305 аудитория"' in text  # delimiter inside a value is quoted
+    assert "Ерлан" in text
+    assert "—" not in text  # empty dates stay empty cells for Excel
+
+
+def test_csv_export_respects_filters(client):
+    make_ticket(client, priority="P1", title="Only this one")
+    make_ticket(client, priority="P4", title="Not this")
+    text = client.get("/export.csv", params={"priority": "P1"}).content.decode("utf-8")
+    assert "Only this one" in text and "Not this" not in text
+
+
+def test_dashboard_shows_assignee_load(client):
+    tid = make_ticket(client)["id"]
+    client.post(f"/api/tickets/{tid}/assign", json={"assignee": "Ерлан"})
+    make_ticket(client)
+    d = client.get("/api/dashboard").json()
+    assert d["by_assignee"] == [{"name": "Ерлан", "count": 1}, {"name": None, "count": 1}]
+    assert "Ерлан" in client.get("/dashboard").text

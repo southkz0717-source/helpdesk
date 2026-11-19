@@ -1,0 +1,261 @@
+{% extends "base.html" %}
+{% block title %}{{ t.nav_dashboard }} · {{ t.app_title }}{% endblock %}
+{% block head %}
+<style>
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px; margin-bottom: 20px; }
+  .kpi { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 16px 18px; }
+  .kpi .label { color: var(--text-2); font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+  .kpi .value { font-size: 32px; font-weight: 700; line-height: 1.15; margin-top: 6px; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+  .kpi .value small { font-size: 15px; font-weight: 600; color: var(--text-2); margin-left: 2px; }
+  .kpi .sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .kpi.critical { border-color: var(--critical); }
+  @media (max-width: 640px) {
+    .kpis { grid-template-columns: 1fr 1fr; gap: 10px; }
+    .kpis .kpi:last-child { grid-column: span 2; }
+    .kpi { padding: 12px 14px; }
+    .kpi .value { font-size: 26px; }
+    .hbar, .hbar.wide { grid-template-columns: 110px minmax(0, 1fr) 32px; }
+  }
+  .kpi.critical .label, .kpi.critical .value { color: var(--critical); }
+
+  .grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+  .grid-2 > .card { margin-bottom: 0; }
+  @media (max-width: 860px) { .grid-2 { grid-template-columns: 1fr; } }
+
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 13px; color: var(--text-2); }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .swatch { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+  .chart-wrap { position: relative; }
+  .chart svg { width: 100%; height: auto; display: block; overflow: visible; }
+  .chart .grid line { stroke: var(--line); stroke-width: 1; }
+  .chart .axis text { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .chart .baseline { stroke: var(--text-2); stroke-width: 1; opacity: .5; }
+  .chart .chart-sm { display: none; }
+  @media (max-width: 640px) { .chart .chart-lg { display: none; } .chart .chart-sm { display: block; } }
+  .chart .s1 { fill: var(--series-1); }
+  .chart .s2 { fill: var(--series-2); }
+  .chart .hit { fill: transparent; cursor: default; }
+  .chart .group:hover .hit, .chart .group:focus .hit { fill: var(--text); opacity: .05; }
+  .chart .group:focus { outline: none; }
+  .chart .group:focus-visible .hit { stroke: var(--focus); stroke-width: 2; opacity: 1; fill: transparent; }
+  .tooltip { position: absolute; pointer-events: none; background: var(--surface); color: var(--text); border: 1px solid var(--line);
+    border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,.14); padding: 8px 10px; font-size: 13px; min-width: 130px; opacity: 0; transition: opacity .12s; z-index: 5; }
+  .tooltip.show { opacity: 1; }
+  .tooltip b { display: block; margin-bottom: 4px; }
+  .tooltip div { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+  .tooltip span { display: inline-flex; align-items: center; gap: 6px; color: var(--text-2); }
+  details { margin-top: 12px; }
+  summary { cursor: pointer; color: var(--accent); font-size: 13px; font-weight: 600; }
+
+  .hbars { display: grid; gap: 10px; }
+  .hbar { display: grid; grid-template-columns: 112px minmax(0, 1fr) 40px; align-items: center; gap: 10px; font-size: 14px; }
+  .hbar .track { height: 10px; background: var(--surface-2); border-radius: 0 4px 4px 0; overflow: hidden; }
+  .hbar .fill { height: 100%; background: var(--series-1); border-radius: 0 4px 4px 0; min-width: 2px; }
+  .hbar .fill.zero { min-width: 0; }
+  .hbar.wide { grid-template-columns: 160px minmax(0, 1fr) 40px; }
+  .hbar .n { text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
+</style>
+{% endblock %}
+{% block content %}
+{% macro bar_svg(c, cls) %}
+    <svg class="{{ cls }}" viewBox="0 0 {{ c.width }} {{ c.height }}" role="img" aria-label="{{ t.chart_week }}: {{ t.chart_week_sub }}">
+      <g class="grid axis">
+        {% for tk in c.ticks %}
+          {% if not loop.first %}<line x1="{{ c.left }}" x2="{{ c.right }}" y1="{{ tk.y }}" y2="{{ tk.y }}"/>{% endif %}
+          <text x="{{ c.left - 8 }}" y="{{ tk.y + 4 }}" text-anchor="end">{{ tk.value }}</text>
+        {% endfor %}
+      </g>
+      {% for g in c.groups %}
+      <g class="group" tabindex="0" data-label="{{ g.label }}" data-created="{{ g.created }}" data-resolved="{{ g.resolved }}"
+         aria-label="{{ g.label }}: {{ t.created_series }} {{ g.created }}, {{ t.resolved_series }} {{ g.resolved }}">
+        <rect class="hit" x="{{ g.x + 2 }}" y="{{ c.top }}" width="{{ g.w - 4 }}" height="{{ c.base - c.top }}" rx="6"/>
+        {% for b in g.bars %}{% if b.value > 0 %}
+          {# rounded data-end (top), square at the baseline #}
+          {% set r = [4, b.h, c.bar_w / 2] | min %}
+          <path class="s{{ b.series }}" d="M{{ b.x }},{{ c.base }} V{{ b.y + r }} Q{{ b.x }},{{ b.y }} {{ b.x + r }},{{ b.y }} H{{ b.x + c.bar_w - r }} Q{{ b.x + c.bar_w }},{{ b.y }} {{ b.x + c.bar_w }},{{ b.y + r }} V{{ c.base }} Z"/>
+        {% endif %}{% endfor %}
+        <text class="axis" x="{{ g.cx }}" y="{{ c.base + 18 }}" text-anchor="middle" style="fill:var(--muted);font-size:11px">{{ g.label }}</text>
+      </g>
+      {% endfor %}
+      <line class="baseline" x1="{{ c.left }}" x2="{{ c.right }}" y1="{{ c.base }}" y2="{{ c.base }}"/>
+    </svg>
+{% endmacro %}
+<div class="page-head">
+  <div>
+    <h1>{{ t.nav_dashboard }}</h1>
+    <p>{{ t.dash_subtitle }} · {{ t.updated }} {{ updated | localtime }} ({{ tz_label() }})</p>
+  </div>
+  <a class="btn" href="/?lang={{ lang }}" style="margin-top:0">{{ t.all_tickets }} →</a>
+</div>
+
+<section class="kpis" aria-label="{{ t.nav_dashboard }}">
+  <div class="kpi">
+    <div class="label">{{ t.kpi_open }}</div>
+    <div class="value">{{ d.open }}</div>
+    <div class="sub">{{ t.kpi_total }}: {{ d.total }}</div>
+  </div>
+  <div class="kpi {{ 'critical' if d.open_p1 else '' }}">
+    <div class="label">{{ t.kpi_p1 }}</div>
+    <div class="value">{{ d.open_p1 }}</div>
+    <div class="sub">P1</div>
+  </div>
+  <div class="kpi {{ 'critical' if d.breached_open else '' }}">
+    <div class="label">{% if d.breached_open %}<span aria-hidden="true">⚠</span>{% endif %}{{ t.kpi_breached }}</div>
+    <div class="value">{{ d.breached_open }}</div>
+    <div class="sub">{{ t.kpi_breached_sub }}</div>
+  </div>
+  <div class="kpi">
+    <div class="label">{{ t.kpi_compliance }}</div>
+    <div class="value">{% if d.sla_compliance is not none %}{{ d.sla_compliance }}<small>%</small>{% else %}—{% endif %}</div>
+    <div class="sub">{{ t.kpi_compliance_sub }}</div>
+  </div>
+  <div class="kpi">
+    <div class="label">{{ t.kpi_avg }}</div>
+    <div class="value">{% if d.avg_resolve_hours is not none %}{{ d.avg_resolve_hours }}<small>{{ t.hours }}</small>{% else %}—{% endif %}</div>
+    <div class="sub">{{ t.resolved_series }}: {{ d.by_status.resolved + d.by_status.closed }}</div>
+  </div>
+</section>
+
+<section class="card">
+  <div class="card-head">
+    <div>
+      <h2>{{ t.chart_week }}</h2>
+      <p>{{ t.chart_week_sub }}</p>
+    </div>
+    <div class="legend" aria-hidden="true">
+      <span><i class="swatch" style="background:var(--series-1)"></i>{{ t.created_series }}</span>
+      <span><i class="swatch" style="background:var(--series-2)"></i>{{ t.resolved_series }}</span>
+    </div>
+  </div>
+  <div class="chart-wrap chart">
+    {{ bar_svg(chart, 'chart-lg') }}
+    {{ bar_svg(chart_sm, 'chart-sm') }}
+    <div class="tooltip" id="tip" role="status" aria-live="polite"></div>
+  </div>
+  <details>
+    <summary>{{ t.show_table }}</summary>
+    <div class="scroll" style="margin-top:8px">
+      <table>
+        <thead><tr><th>{{ t.date }}</th><th class="num">{{ t.created_series }}</th><th class="num">{{ t.resolved_series }}</th></tr></thead>
+        <tbody>
+        {% for g in chart.groups %}<tr><td>{{ g.label }}</td><td class="num">{{ g.created }}</td><td class="num">{{ g.resolved }}</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </details>
+</section>
+
+<div class="grid-2" style="margin-bottom:20px">
+  <section class="card">
+    <div class="card-head"><h2>{{ t.by_priority }}</h2></div>
+    {% set pmax = [1] + d.open_by_priority.values() | list %}
+    {% set pmax = pmax | max %}
+    <div class="hbars">
+      {% for p, n in d.open_by_priority.items() %}
+      <div class="hbar">
+        <span><span class="badge {{ p }}">{{ p }}</span></span>
+        <div class="track"><div class="fill {{ 'zero' if n == 0 else '' }}" style="width: {{ (100 * n / pmax) | round(1) }}%"></div></div>
+        <span class="n">{{ n }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+  <section class="card">
+    <div class="card-head"><h2>{{ t.by_status }}</h2></div>
+    {% set smax = [1] + d.by_status.values() | list %}
+    {% set smax = smax | max %}
+    <div class="hbars">
+      {% for s, n in d.by_status.items() %}
+      <div class="hbar">
+        <span class="status {{ s }}">{{ t[s] }}</span>
+        <div class="track"><div class="fill {{ 'zero' if n == 0 else '' }}" style="width: {{ (100 * n / smax) | round(1) }}%"></div></div>
+        <span class="n">{{ n }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+</div>
+
+<section class="card">
+  <div class="card-head">
+    <div>
+      <h2>{{ t.by_assignee }}</h2>
+      <p>{{ t.by_assignee_sub }}</p>
+    </div>
+  </div>
+  {% if d.by_assignee %}
+  {% set amax = (d.by_assignee | map(attribute="count") | max) %}
+  <div class="hbars">
+    {% for row in d.by_assignee %}
+    <div class="hbar wide">
+      {% if row.name %}<a class="ticket-link" href="/?lang={{ lang }}&assignee={{ row.name | urlencode }}">{{ row.name }}</a>
+      {% else %}<a class="ticket-link muted" href="/?lang={{ lang }}&assignee=__none__">{{ t.unassigned }}</a>{% endif %}
+      <div class="track"><div class="fill" style="width: {{ (100 * row.count / amax) | round(1) }}%"></div></div>
+      <span class="n">{{ row.count }}</span>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="empty">{{ t.no_open }}</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <div class="card-head">
+    <div>
+      <h2>{{ t.urgent }}</h2>
+      <p>{{ t.urgent_sub }}</p>
+    </div>
+  </div>
+  {% if d.urgent %}
+  <div class="scroll">
+    <table>
+      <thead><tr><th>#</th><th>{{ t.title }}</th><th>{{ t.priority }}</th><th>{{ t.status }}</th><th>{{ t.resolve_due }}</th></tr></thead>
+      <tbody>
+      {% for tk in d.urgent %}
+      <tr>
+        <td class="id">{{ tk.id }}</td>
+        <td><a class="ticket-link" href="/tickets/{{ tk.id }}?lang={{ lang }}">{{ tk.title }}</a></td>
+        <td><span class="badge {{ tk.priority }}">{{ tk.priority }}</span></td>
+        <td><span class="status {{ tk.status }}">{{ t[tk.status] }}</span></td>
+        <td style="white-space:nowrap">{{ tk.resolve_due | localtime }}
+          {% if tk.response_breached or tk.resolve_breached %}<br><span class="breached">⚠ {{ t.breached }}</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">{{ t.no_open }}</p>
+  {% endif %}
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  (function () {
+    var tip = document.getElementById("tip");
+    var wrap = tip.parentElement;
+    var names = { c: {{ t.created_series | tojson }}, r: {{ t.resolved_series | tojson }} };
+    function show(g) {
+      tip.innerHTML = "<b>" + g.dataset.label + "</b>" +
+        "<div><span><i class='swatch' style='background:var(--series-1)'></i>" + names.c + "</span><strong>" + g.dataset.created + "</strong></div>" +
+        "<div><span><i class='swatch' style='background:var(--series-2)'></i>" + names.r + "</span><strong>" + g.dataset.resolved + "</strong></div>";
+      var hit = g.querySelector(".hit").getBoundingClientRect();
+      var box = wrap.getBoundingClientRect();
+      var left = hit.left - box.left + hit.width / 2 - tip.offsetWidth / 2;
+      left = Math.max(0, Math.min(left, box.width - tip.offsetWidth));
+      tip.style.left = left + "px";
+      tip.style.top = Math.max(0, hit.top - box.top - tip.offsetHeight + 6) + "px";
+      tip.classList.add("show");
+    }
+    function hide() { tip.classList.remove("show"); }
+    document.querySelectorAll(".chart .group").forEach(function (g) {
+      g.addEventListener("pointerenter", function () { show(g); });
+      g.addEventListener("pointerleave", hide);
+      g.addEventListener("focus", function () { show(g); });
+      g.addEventListener("blur", hide);
+    });
+  })();
+</script>
+{% endblock %}

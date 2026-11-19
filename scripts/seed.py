@@ -45,6 +45,7 @@ NAMES = [
     "Тимур Р.", "Жанар О.", "Бауыржан М.", "Ольга П.", "Сергей В.", "Гүлнар Е.", "Арман Қ.",
 ]  # fmt: skip
 ROOMS = ["101", "204", "305", "312", "407", "А-12", "Б-3"]
+OPERATORS = ["Ерлан Т.", "Айгерім Н.", "Дана С.", "Тимур Р."]
 # priority mix of a real support desk: few P1, most P3
 PRIORITY_WEIGHTS = {Priority.P1: 5, Priority.P2: 20, Priority.P3: 55, Priority.P4: 20}
 STATUS_WEIGHTS = {Status.NEW: 25, Status.IN_PROGRESS: 25, Status.RESOLVED: 20, Status.CLOSED: 30}
@@ -60,6 +61,8 @@ def seed(count: int, rng: random.Random, now: datetime) -> int:
         status = rng.choices(list(STATUS_WEIGHTS), weights=STATUS_WEIGHTS.values())[0]
         created = now - timedelta(minutes=rng.randint(10, 60 * 24 * 30))
         response_due, resolve_due = due_dates(priority, created)
+        # new tickets are often still unassigned; everything else has an operator
+        assignee = None if status == Status.NEW and rng.random() < 0.6 else rng.choice(OPERATORS)
         first_response = resolved = None
         if status != Status.NEW:
             first_response = created + timedelta(minutes=rng.randint(5, 600))
@@ -74,13 +77,14 @@ def seed(count: int, rng: random.Random, now: datetime) -> int:
                 status.value,
                 *(d.isoformat() if d else None for d in (created, response_due, resolve_due)),
                 *(d.isoformat() if d else None for d in (first_response, resolved)),
+                assignee,
             )
         )
     with sqlite3.connect(db.db_path()) as conn:
         conn.executemany(
             "INSERT INTO tickets (title, description, requester, priority, status, created_at,"
-            " response_due, resolve_due, first_response_at, resolved_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " response_due, resolve_due, first_response_at, resolved_at, assignee)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             rows,
         )
     return len(rows)
@@ -113,6 +117,8 @@ def seed_via_api(url: str, count: int, rng: random.Random) -> int:
             {"title": title.format(room=rng.choice(ROOMS)), "description": description,
              "requester": rng.choice(NAMES), "priority": priority.value},
         )  # fmt: skip
+        if status != Status.NEW or rng.random() < 0.4:
+            post(f"/api/tickets/{ticket['id']}/assign", {"assignee": rng.choice(OPERATORS)})
         for step in path[status]:
             post(f"/api/tickets/{ticket['id']}/status", {"status": step})
     return count

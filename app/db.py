@@ -23,7 +23,29 @@ CREATE TABLE IF NOT EXISTS tickets (
     resolved_at       TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_tickets_priority_created ON tickets (priority, created_at);
+
+-- history of a ticket: status changes, assignments and comments (v0.5.0)
+CREATE TABLE IF NOT EXISTS ticket_events (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticket_id  INTEGER NOT NULL REFERENCES tickets(id),
+    kind       TEXT NOT NULL,          -- status | assigned | comment
+    author     TEXT,
+    body       TEXT,
+    from_value TEXT,
+    to_value   TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_events_ticket ON ticket_events (ticket_id, created_at);
 """
+
+UNASSIGNED = "__none__"  # filter value for tickets without an assignee
+
+SORTS = {
+    "queue": "priority, created_at",  # most urgent first, oldest first within a priority
+    "newest": "created_at DESC",
+    "oldest": "created_at",
+    "due": "resolve_due IS NULL, resolve_due, priority",  # nearest deadline first
+}
 
 
 def db_path() -> str:
@@ -52,6 +74,19 @@ def init_db() -> None:
         # users got "database is locked" (HTTP 500) in the load test on v0.3.1.
         conn.execute("PRAGMA journal_mode = WAL")
         conn.executescript(SCHEMA)
+        migrate(conn)
+
+
+def migrate(conn: sqlite3.Connection) -> None:
+    """Expand-only schema changes (release plan 6.4): add, never drop or rename.
+
+    An older release (v0.4.0) keeps working on a database migrated by this one,
+    so rolling back stays safe.
+    """
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(tickets)")}
+    if "assignee" not in columns:
+        conn.execute("ALTER TABLE tickets ADD COLUMN assignee TEXT")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_tickets_assignee ON tickets (assignee)")
 
 
 def now() -> datetime:
@@ -69,7 +104,8 @@ def _parse(value: str | None) -> datetime | None:
 def row_to_dict(row: sqlite3.Row) -> dict:
     data = dict(row)
     for key in ("created_at", "response_due", "resolve_due", "first_response_at", "resolved_at"):
-        data[key] = _parse(data[key])
+        if key in data:
+            data[key] = _parse(data[key])
     return data
 
 
@@ -102,7 +138,10 @@ def get_ticket(ticket_id: int) -> dict | None:
 
 
 def _filters(
-    status: Status | None, priority: Priority | None, q: str | None
+    status: Status | None,
+    priority: Priority | None,
+    q: str | None,
+    assignee: str | None = None,
 ) -> tuple[str, list[str]]:
     where = " WHERE 1=1"
     params: list[str] = []
@@ -119,6 +158,11 @@ def _filters(
     if priority:
         where += " AND priority = ?"
         params.append(priority.value)
+    if assignee == UNASSIGNED:
+        where += " AND (assignee IS NULL OR assignee = '')"
+    elif assignee:
+        where += " AND assignee = ?"
+        params.append(assignee)
     return where, params
 
 
@@ -127,31 +171,97 @@ def list_tickets(
     priority: Priority | None = None,
     q: str | None = None,
     limit: int | None = None,
+    *,
+    assignee: str | None = None,
+    sort: str = "queue",
+    offset: int = 0,
 ) -> list[dict]:
-    """Queue order: most urgent priority first, oldest first within a priority.
+    """Tickets matching the filters, in the chosen order (default: the work queue).
 
     `limit` keeps pages fast as the table grows: rendering every ticket made
     GET / take seconds after ~1300 tickets in the load test on v0.3.1.
     """
-    where, params = _filters(status, priority, q)
-    query = "SELECT * FROM tickets" + where + " ORDER BY priority, created_at"
+    where, params = _filters(status, priority, q, assignee)
+    order = SORTS.get(sort, SORTS["queue"])
+    query = f"SELECT * FROM tickets{where} ORDER BY {order}, id"
     if limit is not None:
-        query += " LIMIT ?"
-        params.append(str(limit))
+        query += " LIMIT ? OFFSET ?"
+        params += [str(limit), str(max(offset, 0))]
     with connect() as conn:
         rows = conn.execute(query, params).fetchall()
     return [row_to_dict(r) for r in rows]
 
 
 def count_tickets(
-    status: Status | None = None, priority: Priority | None = None, q: str | None = None
+    status: Status | None = None,
+    priority: Priority | None = None,
+    q: str | None = None,
+    *,
+    assignee: str | None = None,
 ) -> int:
-    where, params = _filters(status, priority, q)
+    where, params = _filters(status, priority, q, assignee)
     with connect() as conn:
         return conn.execute("SELECT COUNT(*) FROM tickets" + where, params).fetchone()[0]
 
 
-def set_status(ticket_id: int, new_status: Status) -> dict:
+def list_assignees() -> list[str]:
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT assignee FROM tickets WHERE assignee IS NOT NULL AND assignee != ''"
+            " ORDER BY casefold(assignee)"
+        ).fetchall()
+    return [r[0] for r in rows]
+
+
+# ---------- history ----------
+
+
+def _add_event(
+    conn: sqlite3.Connection,
+    ticket_id: int,
+    kind: str,
+    author: str | None = None,
+    body: str | None = None,
+    from_value: str | None = None,
+    to_value: str | None = None,
+) -> None:
+    conn.execute(
+        "INSERT INTO ticket_events"
+        " (ticket_id, kind, author, body, from_value, to_value, created_at)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (ticket_id, kind, author or None, body, from_value, to_value, _iso(now())),
+    )
+
+
+def list_events(ticket_id: int) -> list[dict]:
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM ticket_events WHERE ticket_id = ? ORDER BY created_at, id", (ticket_id,)
+        ).fetchall()
+    return [row_to_dict(r) for r in rows]
+
+
+def add_comment(ticket_id: int, author: str, body: str) -> dict:
+    with connect() as conn:
+        _add_event(conn, ticket_id, "comment", author=author, body=body)
+    return list_events(ticket_id)[-1]
+
+
+def assign(ticket_id: int, assignee: str | None, author: str | None = None) -> dict:
+    ticket = get_ticket(ticket_id)
+    assignee = (assignee or "").strip() or None
+    if assignee == ticket.get("assignee"):
+        return ticket
+    with connect() as conn:
+        conn.execute("UPDATE tickets SET assignee = ? WHERE id = ?", (assignee, ticket_id))
+        _add_event(
+            conn, ticket_id, "assigned", author=author,
+            from_value=ticket.get("assignee"), to_value=assignee,
+        )  # fmt: skip
+    return get_ticket(ticket_id)
+
+
+def set_status(ticket_id: int, new_status: Status, author: str | None = None) -> dict:
     ticket = get_ticket(ticket_id)
     ts = _iso(now())
     first_response = ticket["first_response_at"]
@@ -165,4 +275,8 @@ def set_status(ticket_id: int, new_status: Status) -> dict:
             # reopened: the ticket is no longer resolved
             conn.execute("UPDATE tickets SET resolved_at = NULL WHERE id = ?", (ticket_id,))
         conn.execute("UPDATE tickets SET status = ? WHERE id = ?", (new_status.value, ticket_id))
+        _add_event(
+            conn, ticket_id, "status", author=author,
+            from_value=ticket["status"], to_value=new_status.value,
+        )  # fmt: skip
     return get_ticket(ticket_id)
