@@ -102,7 +102,7 @@ def test_ticket_page_shows_local_time(client, monkeypatch):
 
 
 def test_health_reports_version(client):
-    assert client.get("/health").json()["version"] == "0.4.0"
+    assert client.get("/health").json()["version"] == "0.5.0"
 
 
 def test_search_is_case_insensitive_for_cyrillic_and_kazakh(client):
@@ -182,3 +182,53 @@ def test_database_uses_wal(client, tmp_path):
     conn = sqlite3.connect(tmp_path / "test.db")
     assert conn.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
     conn.close()
+
+
+@pytest.mark.parametrize(
+    "lang,heading", [("kk", "Басқару тақтасы"), ("ru", "Панель управления"), ("en", "Dashboard")]
+)
+def test_dashboard_page(client, lang, heading):
+    make_ticket(client, priority="P1")
+    page = client.get("/dashboard", params={"lang": lang})
+    assert page.status_code == 200
+    assert heading in page.text
+    assert page.text.count('class="group"') == 14  # 7 days x (desktop + phone chart)
+
+
+def test_dashboard_api(client):
+    make_ticket(client, priority="P1")
+    tid = make_ticket(client, priority="P3")["id"]
+    for status in ("in_progress", "resolved"):
+        client.post(f"/api/tickets/{tid}/status", json={"status": status})
+    d = client.get("/api/dashboard").json()
+    assert d["total"] == 2 and d["open"] == 1 and d["open_p1"] == 1
+    assert d["days"][-1]["created"] == 2 and d["days"][-1]["resolved"] == 1
+    assert d["sla_compliance"] == 100
+    assert [t["priority"] for t in d["urgent"]] == ["P1"]
+
+
+def test_index_summary(client):
+    make_ticket(client, priority="P1")
+    make_ticket(client, priority="P2")
+    page = client.get("/", params={"lang": "en"}).text
+    assert "Open P1" in page and "All tickets" in page
+
+
+@pytest.mark.parametrize(
+    "peak,axis",
+    [
+        (1, (1, 1)),
+        (4, (1, 4)),
+        (5, (1, 5)),
+        (9, (2, 5)),
+        (20, (5, 4)),
+        (21, (5, 5)),
+        (180, (50, 4)),
+    ],
+)
+def test_nice_axis(peak, axis):
+    from app.main import nice_axis
+
+    step, count = nice_axis(peak)
+    assert (step, count) == axis
+    assert step * count >= peak and count <= 5

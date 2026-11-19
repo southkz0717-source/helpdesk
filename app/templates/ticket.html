@@ -1,36 +1,57 @@
 {% extends "base.html" %}
+{% block title %}#{{ ticket.id }} · {{ ticket.title }} · {{ t.app_title }}{% endblock %}
+{% block head %}
+<style>
+  .ticket-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 8px 0 6px; }
+  .ticket-head h2 { font-size: 22px; flex: 1 1 100%; }
+  .desc { color: var(--text-2); margin: 10px 0 0; white-space: pre-wrap; }
+  .details th { width: 40%; color: var(--muted); font-weight: 600; font-size: 13px; text-transform: none; letter-spacing: 0; }
+  .details td, .details th { padding: 11px 10px; }
+  .details tr:hover { background: transparent; }
+  .details tr:last-child th, .details tr:last-child td { border-bottom: 0; }
+  .ticket-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 20px; align-items: start; }
+  .ticket-grid > .card { margin-bottom: 0; }
+  @media (max-width: 860px) { .ticket-grid { grid-template-columns: minmax(0, 1fr); } }
+</style>
+{% endblock %}
 {% block content %}
-<p><a href="/?lang={{ lang }}">← {{ t.back }}</a></p>
-<section class="card">
-  <h2>#{{ ticket.id }} · {{ ticket.title }}</h2>
-  <p>{{ ticket.description }}</p>
-  <table>
-    <tr><th>{{ t.requester }}</th><td>{{ ticket.requester }}</td></tr>
-    <tr><th>{{ t.priority }}</th><td><span class="badge">{{ ticket.priority }}</span></td></tr>
-    <tr><th>{{ t.status }}</th><td>{{ t[ticket.status] }}</td></tr>
-    <tr><th>{{ t.created }}</th><td>{{ ticket.created_at | localtime }}</td></tr>
-    <tr><th>{{ t.response_due }}</th><td>
-      {{ ticket.response_due | localtime }}
-      {% if ticket.response_breached %}<span class="breached">· {{ t.breached }}</span>{% endif %}
-    </td></tr>
-    <tr><th>{{ t.resolve_due }}</th><td>
-      {{ ticket.resolve_due | localtime }}
-      {% if ticket.resolve_breached %}<span class="breached">· {{ t.breached }}</span>{% endif %}
-    </td></tr>
-  </table>
-  <p style="color:var(--muted);font-size:13px">{{ tz_label() }}</p>
-</section>
+<p style="margin:0 0 12px"><a href="/?lang={{ lang }}">← {{ t.back }}</a></p>
+<div class="ticket-grid">
+  <section class="card">
+    <div class="ticket-head">
+      <span class="badge {{ ticket.priority }}">{{ ticket.priority }}</span>
+      <span class="status {{ ticket.status }}">{{ t[ticket.status] }}</span>
+      <h2>#{{ ticket.id }} · {{ ticket.title }}</h2>
+    </div>
+    {% if ticket.description %}<p class="desc">{{ ticket.description }}</p>{% endif %}
+    <table class="details" style="margin-top:16px">
+      <tr><th>{{ t.requester }}</th><td>{{ ticket.requester }}</td></tr>
+      <tr><th>{{ t.priority }}</th><td><span class="badge {{ ticket.priority }}">{{ ticket.priority }}</span></td></tr>
+      <tr><th>{{ t.status }}</th><td>{{ t[ticket.status] }}</td></tr>
+      <tr><th>{{ t.created }}</th><td>{{ ticket.created_at | localtime }}</td></tr>
+      <tr><th>{{ t.response_due }}</th><td>
+        {{ ticket.response_due | localtime }}
+        {% if ticket.response_breached %}<span class="breached">⚠ {{ t.breached }}</span>{% endif %}
+      </td></tr>
+      <tr><th>{{ t.resolve_due }}</th><td>
+        {{ ticket.resolve_due | localtime }}
+        {% if ticket.resolve_breached %}<span class="breached">⚠ {{ t.breached }}</span>{% endif %}
+      </td></tr>
+    </table>
+    <p class="muted" style="margin:10px 0 0">{{ tz_label() }}</p>
+  </section>
 
-{% if allowed %}
-<section class="card">
-  <form method="post" action="/tickets/{{ ticket.id }}/status">
-    <input type="hidden" name="lang" value="{{ lang }}">
-    <label for="status">{{ t.change_status }}</label>
-    <select id="status" name="status">
-      {% for s in allowed %}<option value="{{ s }}">{{ t[s] }}</option>{% endfor %}
-    </select>
-    <button type="submit">{{ t.submit }}</button>
-  </form>
-</section>
-{% endif %}
+  {% if allowed %}
+  <section class="card">
+    <form method="post" action="/tickets/{{ ticket.id }}/status">
+      <input type="hidden" name="lang" value="{{ lang }}">
+      <label for="status" style="margin-top:0">{{ t.change_status }}</label>
+      <select id="status" name="status">
+        {% for s in allowed %}<option value="{{ s }}">{{ t[s] }}</option>{% endfor %}
+      </select>
+      <button type="submit" class="btn-block">{{ t.submit }}</button>
+    </form>
+  </section>
+  {% endif %}
+</div>
 {% endblock %}

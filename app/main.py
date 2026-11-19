@@ -10,12 +10,13 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field, ValidationError
 
 from app import db
+from app.dashboard import compute as compute_dashboard
 from app.i18n import LANGUAGES, get_texts
 from app.sla import Priority, Status, can_transition, is_breached
 from app.storage import storage_status, warn_if_ephemeral
-from app.timefmt import localtime, tz_label
+from app.timefmt import display_tz, localtime, tz_label
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 TEMPLATES = Jinja2Templates(directory=Path(__file__).parent / "templates")
 TEMPLATES.env.filters["localtime"] = localtime
@@ -135,18 +136,96 @@ def api_stats() -> dict:
 
 def render(request: Request, name: str, lang: str | None, **context) -> HTMLResponse:
     lang, texts = get_texts(lang)
-    return TEMPLATES.TemplateResponse(
-        request,
-        name,
-        {"lang": lang, "t": texts, "languages": LANGUAGES, "priorities": list(Priority), **context},
-    )
+    base = {"lang": lang, "t": texts, "languages": LANGUAGES, "priorities": list(Priority)}
+    return TEMPLATES.TemplateResponse(request, name, {**base, **context})
+
+
+def dashboard_data() -> dict:
+    tickets = [with_sla_flags(t) for t in db.list_tickets()]
+    return compute_dashboard(tickets, db.now(), display_tz())
+
+
+def nice_axis(peak: int, max_ticks: int = 5) -> tuple[int, int]:
+    """(step, number of steps) for a value axis: step is 1, 2, 5, 10, 20, 50, ...
+
+    Picks the smallest step that covers `peak` in at most `max_ticks` steps, so the
+    axis ends just above the data (peak 9 -> 0..10 by 2, not 0..20 by 5).
+    """
+    magnitude = 1
+    while True:
+        for m in (1, 2, 5):
+            step = m * magnitude
+            count = max(1, -(-peak // step))  # ceil
+            if count <= max_ticks:
+                return step, count
+        magnitude *= 10
+
+
+def bar_chart(days: list[dict], width: int = 640, height: int = 240) -> dict:
+    """Geometry of the grouped bar chart (created vs resolved per day) for the SVG template."""
+    left, right, top, bottom = 34, 8, 14, 30
+    plot_w, plot_h = width - left - right, height - top - bottom
+    peak = max([1] + [max(d["created"], d["resolved"]) for d in days])
+    step, count = nice_axis(peak)
+    axis_max = step * count
+    group_w = plot_w / len(days)
+    bar_w = min(18, group_w / 2 - 6)
+    gap = 2  # surface gap between the two bars of a day
+
+    def y(v: float) -> float:
+        return top + plot_h - plot_h * v / axis_max
+
+    groups = []
+    for i, d in enumerate(days):
+        cx = left + group_w * i + group_w / 2
+        groups.append({
+            **d,
+            "label": d["date"][8:10] + "." + d["date"][5:7],
+            "cx": round(cx, 1),
+            "x": round(left + group_w * i, 1),
+            "w": round(group_w, 1),
+            "bars": [
+                {"series": 1, "value": d["created"], "x": round(cx - gap / 2 - bar_w, 1),
+                 "y": round(y(d["created"]), 1), "h": round(top + plot_h - y(d["created"]), 1)},
+                {"series": 2, "value": d["resolved"], "x": round(cx + gap / 2, 1),
+                 "y": round(y(d["resolved"]), 1), "h": round(top + plot_h - y(d["resolved"]), 1)},
+            ],
+        })  # fmt: skip
+    ticks = [{"value": step * k, "y": round(y(step * k), 1)} for k in range(count + 1)]
+    return {"width": width, "height": height, "left": left, "right": width - right,
+            "top": top, "base": top + plot_h, "bar_w": round(bar_w, 1), "groups": groups,
+            "ticks": ticks}  # fmt: skip
+
+
+@app.get("/api/dashboard")
+def api_dashboard() -> dict:
+    return dashboard_data()
+
+
+@app.get("/dashboard", response_class=HTMLResponse)
+def dashboard_page(request: Request, lang: str | None = None) -> HTMLResponse:
+    data = dashboard_data()
+    return render(
+        request, "dashboard.html", lang, page="dashboard", d=data, chart=bar_chart(data["days"]),
+        chart_sm=bar_chart(data["days"], width=360, height=230),
+        updated=db.now(),
+    )  # fmt: skip
 
 
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request, lang: str | None = None, q: SearchQuery = None) -> HTMLResponse:
     tickets = [with_sla_flags(t) for t in db.list_tickets(q=q, limit=PAGE_SIZE)]
     total = db.count_tickets(q=q)
-    return render(request, "index.html", lang, tickets=tickets, total=total, q=(q or "").strip())
+    summary = {
+        "total": db.count_tickets(),
+        "open": db.count_tickets(Status.NEW) + db.count_tickets(Status.IN_PROGRESS),
+        "open_p1": db.count_tickets(Status.NEW, Priority.P1)
+        + db.count_tickets(Status.IN_PROGRESS, Priority.P1),
+    }
+    return render(
+        request, "index.html", lang, page="tickets", tickets=tickets, total=total,
+        q=(q or "").strip(), summary=summary,
+    )  # fmt: skip
 
 
 @app.post("/tickets")
@@ -173,7 +252,7 @@ def form_create_ticket(
 def ticket_page(request: Request, ticket_id: int, lang: str | None = None) -> HTMLResponse:
     ticket = with_sla_flags(get_or_404(ticket_id))
     allowed = sorted(s.value for s in Status if can_transition(Status(ticket["status"]), s))
-    return render(request, "ticket.html", lang, ticket=ticket, allowed=allowed)
+    return render(request, "ticket.html", lang, page="tickets", ticket=ticket, allowed=allowed)
 
 
 @app.post("/tickets/{ticket_id}/status")
